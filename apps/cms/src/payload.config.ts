@@ -1,33 +1,33 @@
-import { postgresAdapter } from '@payloadcms/db-postgres'
-import { lexicalEditor } from '@payloadcms/richtext-lexical'
-import path from 'path'
-import { buildConfig } from 'payload'
-import { fileURLToPath } from 'url'
-import sharp from 'sharp'
+import { postgresAdapter } from "@payloadcms/db-postgres";
+import { lexicalEditor } from "@payloadcms/richtext-lexical";
+import path from "path";
+import { buildConfig } from "payload";
+import { fileURLToPath } from "url";
+import sharp from "sharp";
 
-import { Users } from './collections/Users'
-import { Sources } from './collections/Sources'
-import { Runs } from './collections/Runs'
-import { Blocks } from './collections/Blocks'
+import { Users } from "./collections/Users";
+import { Sources } from "./collections/Sources";
+import { Runs } from "./collections/Runs";
+import { Blocks } from "./collections/Blocks";
 
-const filename = fileURLToPath(import.meta.url)
-const dirname = path.dirname(filename)
+const filename = fileURLToPath(import.meta.url);
+const dirname = path.dirname(filename);
 
 export default buildConfig({
   // Admin Configuration
   admin: {
     user: Users.slug,
     meta: {
-      titleSuffix: '- Savee Scraper CMS',
+      titleSuffix: "- Savee Scraper CMS",
     },
     importMap: {
       baseDir: path.resolve(dirname),
     },
     components: {
       views: {
-        '/engine': {
-          Component: '@/components/EngineView',
-          path: '/engine',
+        "/engine": {
+          Component: "@/components/EngineView",
+          path: "/engine",
         },
       },
     },
@@ -43,19 +43,19 @@ export default buildConfig({
   editor: lexicalEditor(),
 
   // Security
-  secret: process.env.PAYLOAD_SECRET || '',
+  secret: process.env.PAYLOAD_SECRET || "",
 
   // TypeScript
   typescript: {
-    outputFile: path.resolve(dirname, 'payload-types.ts'),
+    outputFile: path.resolve(dirname, "payload-types.ts"),
   },
 
   // Database - Clean Production Setup
   db: postgresAdapter({
     pool: {
-      connectionString: process.env.DATABASE_URI || '',
+      connectionString: process.env.DATABASE_URI || "",
     },
-    migrationDir: './src/migrations',
+    migrationDir: "./src/migrations",
   }),
 
   // Media handling
@@ -66,8 +66,8 @@ export default buildConfig({
 
   // CORS settings for production
   cors: [
-    'http://localhost:3000',
-    'https://your-domain.com', // Replace with actual domain
+    "http://localhost:3000",
+    "https://your-domain.com", // Replace with actual domain
   ],
 
   // Disable features not needed
@@ -79,4 +79,4 @@ export default buildConfig({
       fileSize: 5000000, // 5MB
     },
   },
-})
+});

@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import Block, BlockOverride, Source
+from ..models import Block, Source
 from ..logging_config import get_logger, PerformanceLogger
 from typing import Any
 

@@ -3,11 +3,26 @@ Blocks model - Cleaned and optimized schema
 """
 from datetime import datetime
 from typing import Optional, Dict, Any
+import enum
 
-from sqlalchemy import String, Text, DateTime, Integer, func, ForeignKey, JSON
+from sqlalchemy import String, Text, DateTime, Integer, func, ForeignKey, JSON, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+
+# Define ENUM types to match Payload CMS
+class BlockMediaTypeEnum(enum.Enum):
+    image = "image"
+    video = "video"
+    gif = "gif"
+    unknown = "unknown"
+
+class BlockStatusEnum(enum.Enum):
+    pending = "pending"
+    fetched = "fetched"
+    scraped = "scraped"
+    uploaded = "uploaded"
+    error = "error"
 
 
 class Block(Base):
@@ -58,8 +73,8 @@ class Block(Base):
     )
     
     # Media information
-    media_type: Mapped[str] = mapped_column(
-        String(20), 
+    media_type: Mapped[BlockMediaTypeEnum] = mapped_column(
+        Enum(BlockMediaTypeEnum, name="enum_blocks_media_type", create_type=False), 
         nullable=True,
         doc="Media type: image, video, gif, unknown"
     )
@@ -85,9 +100,9 @@ class Block(Base):
     )
     
     # Status and Processing
-    status: Mapped[str] = mapped_column(
-        String(50), 
-        default="pending",
+    status: Mapped[BlockStatusEnum] = mapped_column(
+        Enum(BlockStatusEnum, name="enum_blocks_status", create_type=False), 
+        default=BlockStatusEnum.pending,
         nullable=False,
         doc="Processing status: pending, fetched, scraped, uploaded, error"
     )
@@ -98,7 +113,8 @@ class Block(Base):
         nullable=True,
         doc="Content tags"
     )
-    content_metadata: Mapped[Dict[str, Any]] = mapped_column(
+    metadata_: Mapped[Dict[str, Any]] = mapped_column(
+        "metadata",  # Specify the actual column name
         JSON, 
         nullable=True,
         doc="Additional metadata"

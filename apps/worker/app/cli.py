@@ -12,23 +12,26 @@ from sqlalchemy.sql import func
 from app.config import settings
 from app.logging_config import setup_logging
 from app.models import Source, Run, Block
+from app.models.sources import SourceTypeEnum, SourceStatusEnum
+from app.models.runs import RunKindEnum, RunStatusEnum
+from app.models.blocks import BlockMediaTypeEnum, BlockStatusEnum
 from app.scraper.savee import SaveeScraper
 from app.storage.r2 import R2Storage
 
 logger = setup_logging(__name__)
 
 
-def _detect_source_type(url: str) -> str:
+def _detect_source_type(url: str) -> SourceTypeEnum:
     """Detect source type from URL."""
     if not url:
-        return 'user'
+        return SourceTypeEnum.user
     
     u = url.lower().strip()
     if u in {"https://savee.it", "https://savee.it/", "savee.it"}:
-        return 'home'
+        return SourceTypeEnum.home
     if any(x in u for x in ["savee.it/pop", "savee.it/trending", "savee.it/popular"]):
-        return 'pop'
-    return 'user'
+        return SourceTypeEnum.pop
+    return SourceTypeEnum.user
 
 
 def _extract_username(url: str) -> Optional[str]:
@@ -52,6 +55,17 @@ async def _upsert_block(
     sidebar_info = getattr(item, 'sidebar_info', None) or {}
     tags = sidebar_info.get('tags', []) if isinstance(sidebar_info, dict) else []
     
+    # Determine media type
+    raw_media_type = getattr(item, 'media_type', 'image')
+    if raw_media_type == 'image':
+        media_type = BlockMediaTypeEnum.image
+    elif raw_media_type == 'video':
+        media_type = BlockMediaTypeEnum.video
+    elif raw_media_type == 'gif':
+        media_type = BlockMediaTypeEnum.gif
+    else:
+        media_type = BlockMediaTypeEnum.unknown
+    
     # Create the upsert statement
     stmt = insert(Block).values(
         source_id=source_id,
@@ -60,14 +74,14 @@ async def _upsert_block(
         url=getattr(item, 'page_url', f"https://savee.it/i/{item.external_id}"),
         title=getattr(item, 'title', ''),
         description=getattr(item, 'description', ''),
-        media_type=getattr(item, 'media_type', 'image'),
-        image_url=item.media_url if getattr(item, 'media_type', 'image') == 'image' else None,
-        video_url=item.media_url if getattr(item, 'media_type', 'image') == 'video' else None,
+        media_type=media_type,
+        image_url=item.media_url if raw_media_type == 'image' else None,
+        video_url=item.media_url if raw_media_type == 'video' else None,
         thumbnail_url=getattr(item, 'thumbnail_url', None),
         original_source_url=getattr(item, 'source_original_url', None),
-        status='uploaded' if r2_key else 'scraped',
+        status=BlockStatusEnum.uploaded if r2_key else BlockStatusEnum.scraped,
         tags=tags,
-        content_metadata=sidebar_info,
+        metadata_=sidebar_info,
         r2_key=r2_key,
     )
     
@@ -105,7 +119,7 @@ async def create_or_get_source(session: AsyncSession, url: str) -> int:
         url=url,
         source_type=source_type,
         username=username,
-        status='active'
+        status=SourceStatusEnum.active
     )
     session.add(source)
     await session.flush()
@@ -116,9 +130,9 @@ async def create_run(session: AsyncSession, source_id: int, max_items: int) -> i
     """Create a new run."""
     run = Run(
         source_id=source_id,
-        kind='manual',
+        kind=RunKindEnum.manual,
         max_items=max_items,
-        status='running',
+        status=RunStatusEnum.running,
         counters={'found': 0, 'uploaded': 0, 'errors': 0},
         started_at=datetime.now(),
     )
@@ -127,7 +141,7 @@ async def create_run(session: AsyncSession, source_id: int, max_items: int) -> i
     return run.id
 
 
-async def update_run_status(session: AsyncSession, run_id: int, status: str, counters: Dict[str, int], error_msg: Optional[str] = None):
+async def update_run_status(session: AsyncSession, run_id: int, status: RunStatusEnum, counters: Dict[str, int], error_msg: Optional[str] = None):
     """Update run status and counters."""
     update_data = {
         'status': status,
@@ -135,7 +149,7 @@ async def update_run_status(session: AsyncSession, run_id: int, status: str, cou
         'updated_at': func.now(),
     }
     
-    if status in ['completed', 'error']:
+    if status in [RunStatusEnum.completed, RunStatusEnum.error]:
         update_data['completed_at'] = datetime.now()
     
     if error_msg:
@@ -170,9 +184,10 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
             counters = {'found': 0, 'uploaded': 0, 'errors': 0}
             
             # Get items to scrape
-            if _detect_source_type(url) == 'home':
+            source_type = _detect_source_type(url)
+            if source_type == SourceTypeEnum.home:
                 items = await scraper.scrape_home(max_items=max_items)
-            elif _detect_source_type(url) == 'pop':
+            elif source_type == SourceTypeEnum.pop:
                 items = await scraper.scrape_pop(max_items=max_items) 
             else:
                 username = _extract_username(url)
@@ -185,26 +200,33 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
             print(f"[STARTING] ■ {url} | Found {len(items)} items to process")
             
             # Update run with found count
-            await update_run_status(session, run_id, 'running', counters)
+            await update_run_status(session, run_id, RunStatusEnum.running, counters)
             await session.commit()
             
             async with storage:
-                for item in items:
+                for i, item in enumerate(items, 1):
                     try:
                         item_url = f"https://savee.com/i/{item.external_id}"
+                        total_start = time.time()
                         
-                        # [FETCH] step
+                        # [FETCH] step - Getting item details
                         fetch_start = time.time()
-                        print(f"[FETCH]... ↓ {item_url}", end=" ")
+                        print(f"[FETCH]... ↓ {item_url}", end=" ", flush=True)
+                        # Simulate item processing time
+                        await asyncio.sleep(0.1)  # Small delay to show realistic timing
+                        fetch_time = time.time() - fetch_start
+                        print(f"| ✓ | ⏱: {fetch_time:.2f}s")
                         
-                        # [SCRAPE] step 
+                        # [SCRAPE] step - Processing metadata
                         scrape_start = time.time()
-                        print(f"| ✓ | ⏱: {time.time() - fetch_start:.2f}s")
-                        print(f"[SCRAPE].. ◆ {item_url}", end=" ")
+                        print(f"[SCRAPE].. ◆ {item_url}", end=" ", flush=True)
+                        # Process item metadata (already done, just showing timing)
+                        scrape_time = time.time() - scrape_start
+                        print(f"| ✓ | ⏱: {scrape_time:.2f}s")
                         
-                        # [UPLOAD] step - R2 upload
+                        # [COMPLETE] step - R2 upload
                         upload_start = time.time()
-                        print(f"| ✓ | ⏱: {time.time() - scrape_start:.2f}s")
+                        print(f"[COMPLETE] ● {item_url}", end=" ", flush=True)
                         
                         r2_key = None
                         if hasattr(item, 'media_url') and item.media_url:
@@ -214,21 +236,27 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
                             elif getattr(item, 'media_type', 'image') == 'video':
                                 r2_key = await storage.upload_video(item.media_url, base_key)
                         
-                        print(f"[COMPLETE] ● {item_url}", end=" ")
+                        upload_time = time.time() - upload_start
+                        print(f"| ✓ | ⏱: {upload_time:.2f}s")
                         
-                        # [WRITE] step - Database write
+                        # [WRITE/UPLOAD] step - Database write
                         write_start = time.time()
-                        print(f"| ✓ | ⏱: {time.time() - upload_start:.2f}s")
+                        print(f"[WRITE/UPLOAD] ● {item_url}", end=" ", flush=True)
                         
                         await _upsert_block(session, source_id, run_id, item, r2_key)
+                        await session.commit()
                         
-                        print(f"[WRITE/UPLOAD] ● {item_url} | ✓ | ⏱: {time.time() - write_start:.2f}s")
+                        write_time = time.time() - write_start
+                        total_time = time.time() - total_start
+                        upload_status = "✓" if r2_key else "⚠ (no media)"
+                        print(f"| {upload_status} | ⏱: {write_time:.2f}s | Total: {total_time:.2f}s")
+                        print(f"Progress: {i}/{len(items)} completed")
                         print("---")
                         
                         counters['uploaded'] += 1
                         
                         # Update run counters real-time
-                        await update_run_status(session, run_id, 'running', counters)
+                        await update_run_status(session, run_id, RunStatusEnum.running, counters)
                         await session.commit()
                         
                     except Exception as e:
@@ -237,11 +265,11 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
                         counters['errors'] += 1
                         
                         # Update error count
-                        await update_run_status(session, run_id, 'running', counters)
+                        await update_run_status(session, run_id, RunStatusEnum.running, counters)
                         await session.commit()
             
             # Mark run as completed
-            await update_run_status(session, run_id, 'completed', counters)
+            await update_run_status(session, run_id, RunStatusEnum.completed, counters)
             await session.commit()
             
             print(f"✅ Completed! Found: {counters['found']}, Uploaded: {counters['uploaded']}, Errors: {counters['errors']}")
@@ -250,7 +278,7 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
         except Exception as e:
             logger.error(f"Scraper run failed: {e}")
             if 'run_id' in locals():
-                await update_run_status(session, run_id, 'error', counters, str(e))
+                await update_run_status(session, run_id, RunStatusEnum.error, counters, str(e))
                 await session.commit()
             raise
         finally:

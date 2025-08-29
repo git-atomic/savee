@@ -1,12 +1,25 @@
 """
 Runs model - Enhanced with max_items configuration
 """
-from sqlalchemy import DateTime, String, Text, JSON, ForeignKey, Integer
+from sqlalchemy import DateTime, String, Text, JSON, ForeignKey, Integer, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from typing import Dict, Any, Optional
+import enum
 
 from .base import Base
+
+# Define ENUM types to match Payload CMS
+class RunKindEnum(enum.Enum):
+    manual = "manual"
+    scheduled = "scheduled"
+
+class RunStatusEnum(enum.Enum):
+    pending = "pending"
+    running = "running"
+    paused = "paused"
+    completed = "completed"
+    error = "error"
 
 
 class Run(Base):
@@ -27,9 +40,9 @@ class Run(Base):
     )
     
     # Execution Info (per-run configuration)
-    kind: Mapped[str] = mapped_column(
-        String(50),
-        default="manual",
+    kind: Mapped[RunKindEnum] = mapped_column(
+        Enum(RunKindEnum, name="enum_runs_kind", create_type=False),
+        default=RunKindEnum.manual,
         nullable=False,
         doc="Execution type: 'manual' or 'scheduled'"
     )
@@ -39,9 +52,9 @@ class Run(Base):
         default=50,
         doc="Maximum items to scrape for this run"
     )
-    status: Mapped[str] = mapped_column(
-        String(50), 
-        default="pending", 
+    status: Mapped[RunStatusEnum] = mapped_column(
+        Enum(RunStatusEnum, name="enum_runs_status", create_type=False), 
+        default=RunStatusEnum.pending, 
         nullable=False,
         doc="Run status: pending, running, paused, completed, error"
     )

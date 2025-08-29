@@ -1,11 +1,24 @@
 """
 Sources model - Cleaned and optimized schema
 """
-from sqlalchemy import DateTime, String, Text, Integer
+from sqlalchemy import DateTime, String, Text, Integer, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+import enum
 
 from .base import Base
+
+# Define ENUM types to match Payload CMS
+class SourceTypeEnum(enum.Enum):
+    home = "home"
+    pop = "pop" 
+    user = "user"
+
+class SourceStatusEnum(enum.Enum):
+    active = "active"
+    paused = "paused"
+    completed = "completed"
+    error = "error"
 
 
 class Source(Base):
@@ -25,8 +38,8 @@ class Source(Base):
         unique=True,
         doc="Source URL for scraping"
     )
-    source_type: Mapped[str] = mapped_column(
-        String(50), 
+    source_type: Mapped[SourceTypeEnum] = mapped_column(
+        Enum(SourceTypeEnum, name="enum_sources_source_type", create_type=False), 
         nullable=False,
         doc="Source type: 'home', 'pop', 'user'"
     )
@@ -37,9 +50,9 @@ class Source(Base):
     )
     
     # Status only (everything else moved to appropriate tables)
-    status: Mapped[str] = mapped_column(
-        String(50), 
-        default="active",
+    status: Mapped[SourceStatusEnum] = mapped_column(
+        Enum(SourceStatusEnum, name="enum_sources_status", create_type=False), 
+        default=SourceStatusEnum.active,
         nullable=False,
         doc="Current status: active, paused, completed, error"
     )
