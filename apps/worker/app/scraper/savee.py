@@ -520,6 +520,99 @@ class SaveeScraper:
 
     async def scrape_trending(self, max_items: Optional[int] = None) -> List[ScrapedItem]:
         return await self.scrape_listing("https://savee.com/pop", max_items=max_items)
+    
+    async def scrape_pop(self, max_items: Optional[int] = None) -> List[ScrapedItem]:
+        """Scrape popular/trending content"""
+        return await self.scrape_listing("https://savee.com/pop", max_items=max_items)
+    
+    async def scrape_user(self, username: str, max_items: Optional[int] = None) -> List[ScrapedItem]:
+        """Scrape user profile content"""
+        return await self.scrape_listing(f"https://savee.com/{username}", max_items=max_items)
+
+    # Iterator versions for real-time processing
+    async def scrape_home_iterator(self, max_items: Optional[int] = None):
+        """Async iterator that yields items one by one for real-time processing"""
+        async for item in self._scrape_listing_iterator("https://savee.com/", max_items):
+            yield item
+    
+    async def scrape_pop_iterator(self, max_items: Optional[int] = None):
+        """Async iterator that yields items one by one for real-time processing"""
+        async for item in self._scrape_listing_iterator("https://savee.com/pop", max_items):
+            yield item
+    
+    async def scrape_user_iterator(self, username: str, max_items: Optional[int] = None):
+        """Async iterator that yields items one by one for real-time processing"""
+        async for item in self._scrape_listing_iterator(f"https://savee.com/{username}", max_items):
+            yield item
+
+    async def _scrape_listing_iterator(self, url: str, max_items: Optional[int] = None):
+        """
+        Async iterator version of scrape_listing that yields items one by one
+        This enables true real-time processing: scrape1→upload1→scrape2→upload2
+        """
+        try:
+            seen_ids: set[str] = set()
+            
+            # Build browser config with persisted session if provided (same as working method)
+            storage_state = load_storage_state_from_env()
+            cookies = load_cookies_from_env()
+            browser_cfg = BrowserConfig(
+                headless=True,
+                verbose=False,
+                storage_state=storage_state,
+                cookies=cookies,
+            )
+
+            count = 0
+            async with AsyncWebCrawler(config=browser_cfg) as crawler:
+                # Login only if no storage_state/cookies provided and credentials are set
+                if not storage_state and not cookies and settings.SAVE_EMAIL and settings.SAVE_PASSWORD:
+                    sp0 = urlsplit(url)
+                    base_url0 = f"{sp0.scheme}://{sp0.netloc}"
+                    await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
+
+                logger.info(f"Starting real-time scraping: {url}")
+                listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=3, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
+                if not listing_html:
+                    logger.warning(f"No HTML content retrieved from {url}")
+                    return
+
+                # Extract item links from the page
+                item_links = self._find_item_links_in_html(listing_html, item_base_url="https://savee.com")
+                if not item_links:
+                    logger.info("No item links discovered.")
+                    return
+
+                logger.info(f"Found {len(item_links)} items on {url}")
+
+                # Process each item one by one (real-time)
+                for item_link in item_links:
+                    if max_items and count >= max_items:
+                        break
+                    
+                    item_id = self._extract_item_id_from_url(item_link)
+                    if not item_id or item_id in seen_ids:
+                        continue
+                    
+                    try:
+                        # Scrape individual item details
+                        item = await self._scrape_item_details(crawler, item_link)
+                        if item:
+                            seen_ids.add(item_id)
+                            count += 1
+                            logger.info(f"Scraped item {count}: {item.external_id}")
+                            yield item  # Yield immediately for real-time processing
+                        else:
+                            logger.warning(f"Failed to scrape item: {item_link}")
+                    except Exception as e:
+                        logger.error(f"Error scraping item {item_link}: {e}")
+                        continue
+
+                logger.info(f"Completed real-time scraping: {count} items processed")
+
+        except Exception as e:
+            logger.error(f"Failed to scrape listing {url}: {e}")
+            return
 
     async def _scrape_item_details(self, crawler: AsyncWebCrawler, item_url: str) -> Optional[ScrapedItem]:
         """Scrape individual item details using Crawl4AI."""

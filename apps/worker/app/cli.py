@@ -184,29 +184,31 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
             
             counters = {'found': 0, 'uploaded': 0, 'errors': 0}
             
-            # Get items to scrape
-            source_type = _detect_source_type(url)
-            if source_type == SourceTypeEnum.home:
-                items = await scraper.scrape_home(max_items=max_items)
-            elif source_type == SourceTypeEnum.pop:
-                items = await scraper.scrape_pop(max_items=max_items) 
-            else:
-                username = _extract_username(url)
-                if username:
-                    items = await scraper.scrape_user(username, max_items=max_items)
-                else:
-                    raise ValueError(f"Could not extract username from {url}")
+            print(f"[STARTING] ■ {url} | Starting real-time scraping...")
+            await log_starting(run_id, url, "Starting real-time scraping...")
             
-            counters['found'] = len(items)
-            print(f"[STARTING] ■ {url} | Found {len(items)} items to process")
-            await log_starting(run_id, url, f"Found {len(items)} items to process")
-            
-            # Update run with found count
+            # Update run status to running
             await update_run_status(session, run_id, RunStatusEnum.running, counters)
             await session.commit()
             
+            # Get the appropriate iterator for real-time processing
+            source_type = _detect_source_type(url)
+            if source_type == SourceTypeEnum.home:
+                item_iterator = scraper.scrape_home_iterator(max_items=max_items)
+            elif source_type == SourceTypeEnum.pop:
+                item_iterator = scraper.scrape_pop_iterator(max_items=max_items)
+            else:
+                username = _extract_username(url)
+                if username:
+                    item_iterator = scraper.scrape_user_iterator(username, max_items=max_items)
+                else:
+                    raise ValueError(f"Could not extract username from {url}")
+            
             async with storage:
-                for i, item in enumerate(items, 1):
+                processed_count = 0
+                async for item in item_iterator:
+                    processed_count += 1
+                    counters['found'] = processed_count
                     try:
                         item_url = f"https://savee.com/i/{item.external_id}"
                         total_start = time.time()
@@ -252,7 +254,9 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
                         total_time = time.time() - total_start
                         upload_status = "✓" if r2_key else "⚠ (no media)"
                         print(f"| {upload_status} | ⏱: {write_time:.2f}s | Total: {total_time:.2f}s")
-                        print(f"Progress: {i}/{len(items)} completed")
+                        progress_msg = f"{processed_count}/{max_items if max_items else '∞'} completed"
+                        print(f"✅ {progress_msg}")
+                        await log_complete(run_id, item_url, total_time, progress_msg)
                         print("---")
                         
                         counters['uploaded'] += 1

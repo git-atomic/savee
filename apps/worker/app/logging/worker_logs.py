@@ -7,8 +7,12 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
-import aioredis
 from app.config import settings
+
+try:
+    import aioredis
+except ImportError:
+    aioredis = None
 
 @dataclass
 class WorkerLogEntry:
@@ -25,11 +29,15 @@ class WorkerLogger:
     """Real-time worker logger that stores logs for streaming to UI"""
     
     def __init__(self):
-        self.redis_client: Optional[aioredis.Redis] = None
+        self.redis_client = None
         self.fallback_storage: Dict[int, List[WorkerLogEntry]] = {}
     
     async def connect(self):
         """Connect to Redis for real-time log storage"""
+        if aioredis is None:
+            self.redis_client = None
+            return
+            
         try:
             # Try to connect to Redis if available
             self.redis_client = aioredis.from_url(
