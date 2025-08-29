@@ -1,144 +1,141 @@
 """
-Blocks model for core ingestion data
+Blocks model - Cleaned and optimized schema
 """
 from datetime import datetime
-from typing import List, Optional
-from uuid import UUID
+from typing import Optional, Dict, Any
 
-from sqlalchemy import String, Text, DateTime, Boolean, Integer, ARRAY, func
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
+from sqlalchemy import String, Text, DateTime, Integer, func, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import text
 
 from .base import Base
 
 
 class Block(Base):
-    """Core blocks table - raw ingestion data"""
+    """Blocks table - scraped content data (cleaned schema)"""
     __tablename__ = "blocks"
-    __table_args__ = {'schema': 'core'}
     
-    id: Mapped[UUID] = mapped_column(
-        PostgresUUID(as_uuid=True),
-        primary_key=True,
-        server_default=text('gen_random_uuid()')
-    )
-    source_id: Mapped[UUID] = mapped_column(
-        PostgresUUID(as_uuid=True),
-        nullable=False,
-        index=True
-    )
+    # Primary key - using integer to match Payload
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # External Reference
     external_id: Mapped[str] = mapped_column(
-        String(100), 
-        nullable=False,
-        index=True
+        String(255), 
+        nullable=False, 
+        unique=True,
+        index=True,
+        doc="Unique identifier from Savee.it"
     )
     
-    # Raw content from scraper
-    title_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    description_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    tags_raw: Mapped[List[str]] = mapped_column(
-        ARRAY(String(100)), 
+    # Relationships (get source_type/username via relationships)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey('sources.id'), 
+        nullable=False, 
+        index=True,
+        doc="Source that discovered this block"
+    )
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey('runs.id'), 
+        nullable=False, 
+        index=True,
+        doc="Run that scraped this block"
+    )
+    
+    # Content Info
+    url: Mapped[str] = mapped_column(
+        Text, 
         nullable=False,
-        server_default=text("'{}'::text[]")
+        doc="Content URL on Savee.it"
+    )
+    title: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Title of the content"
+    )
+    description: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Description of the content"
     )
     
     # Media information
-    media_key: Mapped[str] = mapped_column(String(500), nullable=False)  # R2 object key
-    media_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'image' or 'video'
-    video_poster_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    media_type: Mapped[str] = mapped_column(
+        String(20), 
+        nullable=True,
+        doc="Media type: image, video, gif, unknown"
+    )
+    image_url: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Original image URL"
+    )
+    video_url: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Original video URL"
+    )
+    thumbnail_url: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Thumbnail URL"
+    )
+    original_source_url: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Original source URL before Savee"
+    )
     
-    # URLs
-    url: Mapped[str] = mapped_column(Text, nullable=False)  # page URL
-    source_api_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    source_original_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Status and Processing
+    status: Mapped[str] = mapped_column(
+        String(50), 
+        default="pending",
+        nullable=False,
+        doc="Processing status: pending, fetched, scraped, uploaded, error"
+    )
     
     # Metadata
-    sidebar_info: Mapped[dict] = mapped_column(
-        JSONB, 
-        nullable=False, 
-        server_default=text("'{}'::jsonb")
+    tags: Mapped[Dict[str, Any]] = mapped_column(
+        JSON, 
+        nullable=True,
+        doc="Content tags"
+    )
+    content_metadata: Mapped[Dict[str, Any]] = mapped_column(
+        JSON, 
+        nullable=True,
+        doc="Additional metadata"
     )
     
-    # Open Graph data
-    og_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    og_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    og_image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    og_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Storage
+    r2_key: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="R2 storage key for uploaded media"
+    )
     
-    # Timestamps
+    # Error handling
+    error_message: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Error message if processing failed"
+    )
+    
+    # Timestamps (standard Payload)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.current_timestamp(),
-        index=True
+        server_default=func.now(),
+        doc="When this block was created"
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.current_timestamp()
+        server_default=func.now(),
+        onupdate=func.now(),
+        doc="When this block was last updated"
     )
-    
-    # Unique constraint on source + external_id
-    __table_args__ = (
-        {'schema': 'core'},
-    )
+
+    # Relationships
+    source = relationship("Source")
+    run = relationship("Run")
 
     def __repr__(self) -> str:
-        return f"<Block(id={self.id}, external_id='{self.external_id}', media_type='{self.media_type}')>"
-
-
-class BlockOverride(Base):
-    """CMS overrides for blocks - editorial layer"""
-    __tablename__ = "blocks_overrides"
-    __table_args__ = {'schema': 'cms'}
-    
-    block_id: Mapped[UUID] = mapped_column(
-        PostgresUUID(as_uuid=True),
-        primary_key=True
-    )
-    
-    # Editorial overrides
-    title_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    description_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    tags_override: Mapped[Optional[List[str]]] = mapped_column(
-        ARRAY(String(100)), 
-        nullable=True
-    )
-    
-    # Editorial metadata
-    status: Mapped[str] = mapped_column(
-        String(20), 
-        nullable=False, 
-        server_default=text("'draft'"),
-        index=True
-    )
-    locked: Mapped[bool] = mapped_column(
-        Boolean, 
-        nullable=False, 
-        server_default=text('false')
-    )
-    priority: Mapped[int] = mapped_column(
-        Integer, 
-        nullable=False, 
-        server_default=text('0'),
-        index=True
-    )
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.current_timestamp()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.current_timestamp(),
-        index=True
-    )
-
-    def __repr__(self) -> str:
-        return f"<BlockOverride(block_id={self.block_id}, status='{self.status}')>"
+        return f"<Block(id={self.id}, external_id='{self.external_id}', media_type='{self.media_type}', status='{self.status}')>"

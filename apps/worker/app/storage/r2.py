@@ -1,3 +1,25 @@
+import aioboto3
+
+class R2Client:
+    def __init__(self, endpoint_url: str, access_key_id: str, secret_access_key: str, bucket_name: str):
+        self.session = aioboto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+        )
+        self.endpoint_url = endpoint_url
+        self.bucket_name = bucket_name
+
+    async def put_object(self, Bucket: str, Key: str, Body: bytes, ContentType: str):
+        async with self.session.client("s3", endpoint_url=self.endpoint_url) as s3:
+            await s3.put_object(
+                Bucket=Bucket,
+                Key=Key,
+                Body=Body,
+                ContentType=ContentType,
+            )
+
+    async def close(self):
+        pass
 """
 Cloudflare R2 storage integration for media files
 """
@@ -242,6 +264,38 @@ class R2Storage:
         except Exception as e:
             logger.error(f"Failed to delete {key}: {e}")
             raise
+    
+    async def delete_prefix(self, prefix: str) -> int:
+        """Delete all objects under a prefix. Return count deleted."""
+        deleted = 0
+        try:
+            continuation = None
+            while True:
+                kwargs = {
+                    'Bucket': settings.r2_bucket_name,
+                    'Prefix': prefix,
+                    'MaxKeys': 1000,
+                }
+                if continuation:
+                    kwargs['ContinuationToken'] = continuation
+                resp = await self.client.list_objects_v2(**kwargs)
+                contents = resp.get('Contents', [])
+                if not contents:
+                    break
+                to_delete = [{'Key': o['Key']} for o in contents]
+                await self.client.delete_objects(Bucket=settings.r2_bucket_name, Delete={'Objects': to_delete})
+                deleted += len(to_delete)
+                if not resp.get('IsTruncated'):
+                    break
+                continuation = resp.get('NextContinuationToken')
+        except Exception as e:
+            logger.error(f"Failed to delete prefix {prefix}: {e}")
+            raise
+        return deleted
+    
+    async def delete_all(self) -> int:
+        """Delete all objects in the bucket. Return count deleted."""
+        return await self.delete_prefix("")
             
     async def list_objects(self, prefix: str = '', limit: int = 1000) -> List[Dict]:
         """List objects in bucket"""

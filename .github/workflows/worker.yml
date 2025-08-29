@@ -9,10 +9,10 @@ on:
         description: "Max items per source"
         required: false
         default: "50"
-      limit_sources:
-        description: "Limit to first N sources"
+      start_url:
+        description: "The URL to start scraping from"
         required: false
-        default: ""
+        default: "https://savee.it/"
 
 jobs:
   run-worker-once:
@@ -30,7 +30,7 @@ jobs:
       - name: Install system dependencies for Playwright
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
+          sudo apt-get install -y jq curl libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
               libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
               libasound2 libatspi2.0-0 libxshmfence1 libx11-xcb1
 
@@ -44,6 +44,22 @@ jobs:
         run: |
           python -m playwright install --with-deps chromium
 
+      - name: Write Savee cookies to file
+        run: |
+          mkdir -p apps/worker
+          if [ -n "${{ secrets.COOKIES_URL }}" ]; then
+            echo "Downloading cookies from COOKIES_URL";
+            curl -fsSL "${{ secrets.COOKIES_URL }}" -o apps/worker/savee_cookies.json;
+          elif [ -n "${{ secrets.COOKIES_JSON_MINIFIED }}" ]; then
+            echo "Writing cookies from COOKIES_JSON_MINIFIED";
+            printf '%s' "${{ secrets.COOKIES_JSON_MINIFIED }}" > apps/worker/savee_cookies.json;
+          else
+            echo "No cookies provided. Set COOKIES_URL or COOKIES_JSON_MINIFIED secrets.";
+            exit 1;
+          fi
+          echo "Validating cookies JSON";
+          jq empty apps/worker/savee_cookies.json
+
       - name: Run one scrape cycle
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -51,12 +67,14 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          AMQP_URL: ${{ secrets.AMQP_URL || '' }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          COOKIES_JSON: ${{ secrets.COOKIES_JSON || '' }}
-          COOKIES_PATH: ""
+          COOKIES_PATH: apps/worker/savee_cookies.json
         working-directory: apps/worker
         run: |
-          python -m app.cli --max-items "${{ github.event.inputs.max_items || '50' }}" $(
-            if [ -n "${{ github.event.inputs.limit_sources }}" ]; then echo --limit-sources "${{ github.event.inputs.limit_sources }}"; fi
-          )
+          MAX_ITEMS="${{ github.event.inputs.max_items }}";
+          START_URL="${{ github.event.inputs.start_url }}"; [ -z "$START_URL" ] && START_URL="https://savee.it/";
+          if [ -n "$MAX_ITEMS" ]; then
+            python -m app.cli --start-url "$START_URL" --max-items "$MAX_ITEMS";
+          else
+            python -m app.cli --start-url "$START_URL" --max-items -1;
+          fi

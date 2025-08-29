@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = Field(default=30, description="Database max pool overflow")
     DB_POOL_TIMEOUT: int = Field(default=30, description="Database pool timeout seconds")
     
-    # Queue/RabbitMQ
-    AMQP_URL: str = Field(..., description="RabbitMQ connection URL")
+    # Queue/RabbitMQ (optional; GitHub Actions path does not require AMQP)
+    AMQP_URL: Optional[str] = Field(default=None, description="RabbitMQ connection URL (optional)")
     QUEUE_PREFETCH: int = Field(default=8, description="Queue prefetch count")
     ITEM_TTL_MS: int = Field(default=0, description="Item TTL in milliseconds (0 = no TTL)")
     
@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     R2_SECRET_ACCESS_KEY: str = Field(..., description="R2 secret access key")
     R2_BUCKET_NAME: str = Field(..., description="R2 bucket name")
     R2_REGION: str = Field(default="auto", description="R2 region")
+
+    # Payload CMS (optional; worker operates without Payload)
+    PAYLOAD_API_URL: Optional[str] = Field(default=None, description="Payload CMS API URL (optional)")
+    PAYLOAD_API_KEY: Optional[str] = Field(default=None, description="Payload CMS API key (optional)")
     
     # Scraping
     SCRAPER_USER_AGENT: str = Field(
@@ -54,8 +58,7 @@ class Settings(BaseSettings):
     ITEM_CONCURRENCY: int = Field(default=4, description="Number of concurrent item processors")
     
     # Scheduling
-    TAIL_SWEEP_INTERVAL: int = Field(default=60, description="Tail sweep interval (seconds)")
-    BACKFILL_SWEEP_INTERVAL: int = Field(default=3600, description="Backfill sweep interval (seconds)")
+    # (See detailed intervals below)
     
     # API
     API_HOST: str = Field(default="0.0.0.0", description="API host")
@@ -97,14 +100,21 @@ class Settings(BaseSettings):
     
     @validator('DATABASE_URL')
     def validate_database_url(cls, v):
-        """Validate database URL format"""
-        if not v.startswith(('postgresql://', 'postgresql+asyncpg://', 'postgresql+psycopg://')):
+        """Validate database URL format and convert to async"""
+        if not v.startswith(('postgresql://', 'postgresql+asyncpg://', 'postgresql+psycopg://', 'postgres://')):
             raise ValueError('DATABASE_URL must be a valid PostgreSQL URL')
+        # Convert to async driver
+        if v.startswith('postgresql://') and '+async' not in v:
+            return v.replace('postgresql://', 'postgresql+asyncpg://')
+        elif v.startswith('postgres://'):
+            return v.replace('postgres://', 'postgresql+asyncpg://')
         return v
     
     @validator('AMQP_URL')
     def validate_amqp_url(cls, v):
-        """Validate AMQP URL format"""
+        """Validate AMQP URL format if provided"""
+        if v is None or v == "":
+            return None
         if not v.startswith(('amqp://', 'amqps://')):
             raise ValueError('AMQP_URL must be a valid AMQP URL')
         return v
@@ -142,8 +152,33 @@ class Settings(BaseSettings):
     def async_database_url(self) -> str:
         """Get async database URL for SQLAlchemy"""
         url = self.DATABASE_URL
-        if url.startswith('postgresql://'):
-            return url.replace('postgresql://', 'postgresql+asyncpg://', 1)
+        # Normalize driver to asyncpg
+        if url.startswith('postgresql+psycopg://'):
+            url = url.replace('postgresql+psycopg://', 'postgresql+asyncpg://', 1)
+        elif url.startswith('postgresql://'):
+            url = url.replace('postgresql://', 'postgresql+asyncpg://', 1)
+
+        # Convert libpq sslmode param to asyncpg-compatible 'ssl=true'
+        try:
+            from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+            sp = urlsplit(url)
+            query_pairs = dict(parse_qsl(sp.query, keep_blank_values=True))
+            if 'sslmode' in query_pairs:
+                mode = (query_pairs.pop('sslmode') or '').lower()
+                # For asyncpg, any sslmode that enforces TLS should map to ssl=true
+                if mode in {'require', 'verify-ca', 'verify-full'}:
+                    query_pairs['ssl'] = 'true'
+                elif mode in {'disable'}:
+                    query_pairs['ssl'] = 'false'
+                else:
+                    # Default to enabling TLS for unknown/empty values
+                    query_pairs['ssl'] = 'true'
+            new_query = urlencode(query_pairs)
+            url = urlunsplit((sp.scheme, sp.netloc, sp.path, new_query, sp.fragment))
+        except Exception:
+            # If anything fails, fall back to the normalized URL
+            pass
+
         return url
     
     @property

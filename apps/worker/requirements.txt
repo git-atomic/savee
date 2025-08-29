@@ -1,11 +1,9 @@
 # Core Dependencies
-aio-pika==9.4.3
 aiohttp==3.12.8
 aioboto3==13.2.0
 python-dotenv==1.0.1
 tenacity==9.0.0
 playwright==1.50.0
-crawl4ai==0.7.4
 
 # Database - SQLAlchemy + Alembic for proper ORM and migrations
 sqlalchemy==2.0.35
@@ -14,36 +12,20 @@ psycopg==3.2.4
 psycopg-binary==3.2.4
 asyncpg==0.30.0
 
-# FastAPI and web server
-fastapi==0.115.7
-uvicorn[standard]==0.34.0
+# Pydantic for configuration and validation
 pydantic==2.10.6
 pydantic-settings==2.8.0
 
-# Production dependencies
-psutil==6.1.1
-prometheus-client==0.21.1
-
-# Security and validation
-email-validator==2.2.0
-python-multipart==0.0.19
-
-# Authentication & Security
-PyJWT==2.9.0
-passlib[bcrypt]==1.7.4
-python-jose[cryptography]==3.3.0
-
-# Image Processing & Storage
+# Image Processing & Web Scraping
 Pillow==10.4.0
 beautifulsoup4==4.12.3
 
-# Rate Limiting & Security
-slowapi==0.1.9
+# Logging and Monitoring
 structlog==24.4.0
 colorama==0.4.6
+psutil==6.1.1
 
-# Testing (optional for production)
+# Testing (optional for development)
 pytest==8.3.4
 pytest-asyncio==0.25.0
 httpx==0.28.1
-

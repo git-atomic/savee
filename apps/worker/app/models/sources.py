@@ -1,11 +1,9 @@
 """
-Sources model - Defines scraping sources (Savee profiles, collections, etc.)
+Sources model - Cleaned and optimized schema
 """
-from sqlalchemy import Boolean, DateTime, String, Text, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, String, Text, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from uuid import UUID
-import uuid
 
 from .base import Base
 
@@ -13,53 +11,40 @@ from .base import Base
 class Source(Base):
     __tablename__ = "sources"
 
-    # Primary key
-    id: Mapped[UUID] = mapped_column(
-        primary_key=True, 
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
-        doc="Unique identifier for the source"
+    # Primary key - using integer to match Payload
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True
     )
     
-    # Core source information
-    name: Mapped[str] = mapped_column(
-        String(255), 
-        nullable=False,
-        doc="Human-readable name for the source"
-    )
-    type: Mapped[str] = mapped_column(
-        String(50), 
-        nullable=False,
-        doc="Source type: 'home', 'pop', 'user', 'collection'"
-    )
+    # Core source information (essential only)
     url: Mapped[str] = mapped_column(
         Text, 
         nullable=False,
-        doc="Base URL for scraping this source"
+        unique=True,
+        doc="Source URL for scraping"
+    )
+    source_type: Mapped[str] = mapped_column(
+        String(50), 
+        nullable=False,
+        doc="Source type: 'home', 'pop', 'user'"
+    )
+    username: Mapped[str] = mapped_column(
+        String(255), 
+        nullable=True,
+        doc="Username for user profile sources"
     )
     
-    # Status and configuration
-    enabled: Mapped[bool] = mapped_column(
-        Boolean, 
-        default=True, 
-        nullable=False,
-        doc="Whether this source is active for scraping"
-    )
+    # Status only (everything else moved to appropriate tables)
     status: Mapped[str] = mapped_column(
         String(50), 
-        default="active", 
+        default="active",
         nullable=False,
-        doc="Current status: 'active', 'paused', 'error'"
+        doc="Current status: active, paused, completed, error"
     )
     
-    # Scheduling
-    next_run_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=True,
-        doc="When this source should next be scraped"
-    )
-    
-    # Metadata
+    # Timestamps (standard Payload)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), 
         nullable=False, 
@@ -74,5 +59,8 @@ class Source(Base):
         doc="When this source was last updated"
     )
 
+    # Relationships
+    runs = relationship("Run", back_populates="source", cascade="all, delete-orphan")
+
     def __repr__(self) -> str:
-        return f"<Source(id={self.id}, name='{self.name}', type='{self.type}', enabled={self.enabled})>"
+        return f"<Source(id={self.id}, url='{self.url}', source_type='{self.source_type}', status='{self.status}')>"

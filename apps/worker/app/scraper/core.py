@@ -3,6 +3,7 @@ Core scraping functionality for Savee.com
 """
 import asyncio
 import json
+import sys
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
@@ -40,6 +41,7 @@ class SaveeSession:
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
         self.browser: Optional[Browser] = None
+        self.context = None
         self.page: Optional[Page] = None
         # Prefer runtime-provided cookies
         self.cookies = {}
@@ -55,25 +57,25 @@ class SaveeSession:
         """Initialize session with browser and HTTP client"""
         # Start Playwright browser
         self.playwright = await async_playwright().start()
+        launch_args = [
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+        ]
+        if sys.platform != 'win32':
+            launch_args.extend(['--no-sandbox', '--disable-setuid-sandbox'])
+
         self.browser = await self.playwright.chromium.launch(
             headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu'
-            ]
+            args=launch_args,
         )
-        
-        # Create page with cookies
-        self.page = await self.browser.new_page()
-        await self.page.set_extra_http_headers({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
+
+        # Create context (set UA here) and add cookies before opening a page
+        self.context = await self.browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        )
         
         # Load cookies from env (COOKIES_JSON or COOKIES_PATH) if available
         cookies_loaded = False
@@ -84,10 +86,13 @@ class SaveeSession:
                 if isinstance(data, list):
                     for c in data:
                         if 'name' in c and 'value' in c:
-                            await self.page.context.add_cookies([{
+                            domain = c.get('domain', '.savee.com')
+                            if domain.startswith('.'):  # playwright expects domain without leading dot
+                                domain = domain[1:]
+                            await self.context.add_cookies([{
                                 'name': c['name'],
                                 'value': c['value'],
-                                'domain': c.get('domain', '.savee.com'),
+                                'domain': domain,
                                 'path': c.get('path', '/'),
                                 'httpOnly': c.get('httpOnly', False),
                                 'secure': c.get('secure', True),
@@ -95,10 +100,10 @@ class SaveeSession:
                     cookies_loaded = True
                 elif isinstance(data, dict):
                     for name, value in data.items():
-                        await self.page.context.add_cookies([{
+                        await self.context.add_cookies([{
                             'name': name,
                             'value': value,
-                            'domain': '.savee.com',
+                            'domain': 'savee.com',
                             'path': '/',
                             'secure': True,
                         }])
@@ -113,10 +118,13 @@ class SaveeSession:
                 if isinstance(data, list):
                     for c in data:
                         if 'name' in c and 'value' in c:
-                            await self.page.context.add_cookies([{
+                            domain = c.get('domain', '.savee.com')
+                            if domain.startswith('.'):  # playwright expects domain without leading dot
+                                domain = domain[1:]
+                            await self.context.add_cookies([{
                                 'name': c['name'],
                                 'value': c['value'],
-                                'domain': c.get('domain', '.savee.com'),
+                                'domain': domain,
                                 'path': c.get('path', '/'),
                                 'httpOnly': c.get('httpOnly', False),
                                 'secure': c.get('secure', True),
@@ -124,10 +132,10 @@ class SaveeSession:
                     cookies_loaded = True
                 elif isinstance(data, dict):
                     for name, value in data.items():
-                        await self.page.context.add_cookies([{
+                        await self.context.add_cookies([{
                             'name': name,
                             'value': value,
-                            'domain': '.savee.com',
+                            'domain': 'savee.com',
                             'path': '/',
                             'secure': True,
                         }])
@@ -138,12 +146,15 @@ class SaveeSession:
         # Fallback to any hardcoded cookies (discouraged)
         if self.cookies:
             for name, value in self.cookies.items():
-                await self.page.context.add_cookies([{
+                await self.context.add_cookies([{
                     'name': name,
                     'value': value,
-                    'domain': '.savee.com',
+                    'domain': 'savee.com',
                     'path': '/',
                 }])
+
+        # Create page after cookies have been added to the context
+        self.page = await self.context.new_page()
             
         # Create HTTP session
         self.session = aiohttp.ClientSession(
@@ -164,6 +175,8 @@ class SaveeSession:
             await self.session.close()
         if self.page:
             await self.page.close()
+        if self.context:
+            await self.context.close()
         if self.browser:
             await self.browser.close()
         if hasattr(self, 'playwright'):

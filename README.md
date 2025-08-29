@@ -1,244 +1,174 @@
-# ScrapeSavee - Professional Oracle VM Deployment
+# 🎯 ScrapeSavee - Production Content Management System
 
-A production-ready web scraping platform for Savee.com content, optimized for Oracle Cloud Always Free VM deployment.
+A professional-grade content scraping and management platform built with **Payload CMS v3** and **Python workers**.
 
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        ORACLE CLOUD VM                         │
-│                      (Always Free Tier)                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────────┐    ┌─────────────────┐                    │
-│  │   Scraper API   │    │   Admin Panel   │                    │
-│  │   (FastAPI)     │◄──►│   (Next.js)     │                    │
-│  │   Port: 8001    │    │   Port: 3000    │                    │
-│  └─────────────────┘    └─────────────────┘                    │
-│           │                       │                             │
-│           ▼                       ▼                             │
-│  ┌─────────────────┐    ┌─────────────────┐                    │
-│  │   Nginx Proxy   │    │   SSL Certs     │                    │
-│  │   Port: 80/443  │    │   (Let's Encrypt)│                    │
-│  └─────────────────┘    └─────────────────┘                    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    EXTERNAL SERVICES (Free Tier)               │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │   Neon DB       │  │   CloudAMQP     │  │  Cloudflare R2  │ │
-│  │  (PostgreSQL)   │  │   (RabbitMQ)    │  │  (Object Store) │ │
-│  │   Free Tier     │  │   Free Tier     │  │   Free Tier     │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## 🚀 Quick Deploy to Oracle VM
-
-### **One-Command Deployment:**
-
-```bash
-# SSH to your Oracle VM
-ssh ubuntu@your-oracle-vm-ip
-
-# Run deployment script
-curl -fsSL https://raw.githubusercontent.com/yourusername/scrapesavee/main/deployment/scripts/deploy-oracle-vm.sh | bash
-```
-
-### **Manual Deployment:**
-
-1. **Setup External Services** (5 minutes):
-
-   - [Neon PostgreSQL](https://neon.tech) - Free 10GB database
-   - [CloudAMQP](https://cloudamqp.com) - Free 1M messages/month
-   - [Cloudflare R2](https://cloudflare.com/products/r2/) - Free 10GB storage
-
-2. **Deploy to Oracle VM**:
-
-   ```bash
-   git clone https://github.com/yourusername/scrapesavee.git
-   cd scrapesavee
-   cp .env.example .env
-   # Edit .env with your service URLs
-   ./deployment/scripts/deploy-oracle-vm.sh
-   ```
-
-3. **Access Your Application**:
-   - 🎨 **Admin Dashboard**: `https://your-domain.com`
-   - 🔧 **API Documentation**: `https://your-domain.com/api/docs`
-
-## 📁 Project Structure
+## 📋 Project Structure
 
 ```
 scrapesavee/
 ├── apps/
-│   ├── worker/                    # FastAPI Scraper API
-│   │   ├── app/
-│   │   │   ├── main.py           # Main API application
-│   │   │   ├── models/           # Database models
-│   │   │   ├── scraper/          # Scraping logic
-│   │   │   ├── queue/            # RabbitMQ integration
-│   │   │   ├── storage/          # R2 storage
-│   │   │   └── auth/             # JWT authentication
-│   │   ├── alembic/              # Database migrations
-│   │   └── requirements.txt      # Python dependencies
+│   ├── cms/              # Payload CMS v3 (Next.js + Admin UI)
+│   │   ├── src/
+│   │   │   ├── collections/    # Database schemas (Users, Sources, Runs, Blocks)
+│   │   │   ├── components/     # Custom admin components (EngineView)
+│   │   │   ├── lib/           # Utilities (URL parsing, types)
+│   │   │   └── migrations/     # Database migrations
+│   │   └── package.json
 │   │
-│   └── admin-ui/                 # Next.js Admin Dashboard
-│       ├── src/
-│       │   ├── app/              # App router pages
-│       │   ├── components/       # React components (shadcn/ui)
-│       │   └── lib/              # API client
-│       └── package.json          # Node dependencies
+│   └── worker/           # Python scraping worker
+│       ├── app/
+│       │   ├── cli.py          # Command-line interface
+│       │   ├── config.py       # Environment configuration
+│       │   ├── database/       # Database operations
+│       │   ├── models/         # SQLAlchemy models
+│       │   ├── scraper/        # Savee.it scraping logic
+│       │   └── storage/        # Cloudflare R2 integration
+│       └── requirements.txt
 │
-├── deployment/
-│   ├── nginx/                    # Nginx configuration
-│   ├── ssl/                      # SSL certificate configs
-│   └── scripts/                  # Deployment scripts
-│
-├── docker-compose.prod.yml       # Production orchestration
-├── .env.example                  # Environment template
-└── DEPLOYMENT.md                 # Detailed deployment guide
+├── .gitignore            # Comprehensive ignore rules
+└── README.md            # This file
 ```
 
-## 🎯 Features
+## 🚀 Technology Stack
 
-### **Core Functionality:**
+### **CMS (Admin Panel)**
 
-- ✅ **Savee.com Scraping**: Complete item discovery and extraction
-- ✅ **Queue Processing**: RabbitMQ-based job management
-- ✅ **Media Storage**: Cloudflare R2 with thumbnails and presigned URLs
-- ✅ **Admin Dashboard**: Beautiful Next.js interface with shadcn/ui
-- ✅ **Authentication**: JWT with role-based access control
-- ✅ **Database**: PostgreSQL with comprehensive schema
+- **Payload CMS v3** - Modern headless CMS
+- **Next.js 15** - React framework with App Router
+- **PostgreSQL** - Primary database (Neon)
+- **TypeScript** - Type-safe development
 
-### **Production Features:**
+### **Worker (Scraping Engine)**
 
-- ✅ **SSL/TLS**: Automatic Let's Encrypt certificates
-- ✅ **Reverse Proxy**: Nginx with rate limiting and security headers
-- ✅ **Monitoring**: Health checks and structured logging
-- ✅ **Backups**: Automated database backups
-- ✅ **Security**: Firewall, CORS, input validation
-- ✅ **Performance**: Connection pooling, caching, compression
+- **Python 3.11+** - Async scraping operations
+- **SQLAlchemy** - Database ORM with async support
+- **Cloudflare R2** - Object storage for media
+- **Advanced scraping** - Handles dynamic content, sessions
 
-## 📊 Database Schema
+### **Database Schema**
 
-### **Core Tables:**
+- **`users`** - Admin authentication
+- **`sources`** - Scraping sources (URLs, types, status)
+- **`runs`** - Job execution tracking with metrics
+- **`blocks`** - Scraped content with rich metadata
 
-- `sources` - Scraping sources and configuration
-- `items` - Global item registry with metadata
-- `runs` - Scraping job execution history
-- `item_sources` - Many-to-many source relationships
+## 🔧 Quick Start
 
-### **Advanced Schema:**
+### **Prerequisites**
 
-- `core.blocks` - Raw scraped data (ingestion truth)
-- `cms.block_overrides` - Editorial overrides and customizations
-- `cms.v_blocks` - Merged view combining raw + editorial data
-- `media` - R2 object metadata with multiple sizes
+- Node.js 18+
+- Python 3.11+
+- PostgreSQL database
+- Cloudflare R2 credentials
 
-### **Features:**
-
-- UUID primary keys for scalability
-- JSONB columns for flexible metadata
-- Full-text search indexes
-- Proper foreign key constraints
-- Audit timestamps on all tables
-
-## 🔐 Security
-
-- **SSL/TLS**: Let's Encrypt certificates with automatic renewal
-- **Authentication**: JWT tokens with role-based permissions
-- **Rate Limiting**: API and admin interface protection
-- **Security Headers**: XSS, CSRF, and clickjacking protection
-- **Firewall**: Oracle Cloud Security Lists configuration
-- **Input Validation**: Comprehensive sanitization and validation
-- **Secrets Management**: Environment-based configuration
-
-## 💰 Cost Breakdown
-
-| Service             | Tier           | Monthly Cost |
-| ------------------- | -------------- | ------------ |
-| Oracle VM           | Always Free    | $0           |
-| Neon PostgreSQL     | Free (10GB)    | $0           |
-| CloudAMQP RabbitMQ  | Free (1M msgs) | $0           |
-| Cloudflare R2       | Free (10GB)    | $0           |
-| Domain Registration | Annual         | $10-15/year  |
-
-**Total Monthly Cost: $0** (except domain)
-
-## 🛠️ Management
-
-### **Common Commands:**
+### **Setup CMS**
 
 ```bash
-# View logs
-docker-compose -f docker-compose.prod.yml logs -f
-
-# Restart services
-docker-compose -f docker-compose.prod.yml restart
-
-# Update application
-cd /opt/scrapesavee
-git pull
-docker-compose -f docker-compose.prod.yml up -d --build
-
-# Database migrations
-docker-compose -f docker-compose.prod.yml exec worker-api alembic upgrade head
-
-# Backup database
-docker-compose -f docker-compose.prod.yml exec worker-api python manage.py backup
-
-# Monitor system resources
-htop
-docker stats
+cd apps/cms
+npm install
+cp .env.example .env
+# Configure DATABASE_URI and PAYLOAD_SECRET
+npm run dev
 ```
 
-### **Default Credentials:**
+### **Setup Worker**
 
-- **Username**: `admin`
-- **Password**: `admin123`
-- ⚠️ **Change immediately in production!**
+```bash
+cd apps/worker
+pip install -r requirements.txt
+cp .env.example .env
+# Configure database and R2 credentials
+python -m app.cli --help
+```
 
-## 🆘 Troubleshooting
+## 📊 Features
 
-### **Common Issues:**
+### **Content Management**
 
-1. **SSL Certificate Fails**:
+- ✅ **Auto-categorization** by source type (home, pop, user profiles)
+- ✅ **Rich metadata** with tags and color palettes
+- ✅ **Direct R2 uploads** for immediate storage
+- ✅ **Real-time job monitoring** with live counters
 
-   ```bash
-   # Ensure domain points to your VM IP
-   # Check firewall allows ports 80/443
-   sudo certbot --nginx -d your-domain.com --dry-run
-   ```
+### **Scraping Engine**
 
-2. **Services Won't Start**:
+- ✅ **Multi-source support** (savee.it feeds and user profiles)
+- ✅ **Session management** with persistent cookies
+- ✅ **Advanced media detection** (images, videos, GIFs)
+- ✅ **Automatic user profile creation** from URLs
 
-   ```bash
-   # Check environment variables
-   docker-compose -f docker-compose.prod.yml config
+### **Admin Interface**
 
-   # Check service logs
-   docker-compose -f docker-compose.prod.yml logs worker-api
-   ```
+- ✅ **Integrated engine UI** within Payload admin
+- ✅ **Job control** (start, pause, resume, cancel)
+- ✅ **Live progress tracking** with detailed logs
+- ✅ **Content preview** and management
 
-3. **Database Connection Issues**:
-   ```bash
-   # Test database connectivity
-   docker-compose -f docker-compose.prod.yml exec worker-api python -c "
-   from app.database import engine
-   print('Database connection successful')
-   "
-   ```
+## 🔐 Environment Variables
 
-### **Support:**
+### **CMS (.env)**
 
-- 📧 [Create an issue](https://github.com/yourusername/scrapesavee/issues)
-- 📚 [Check API docs](https://your-domain.com/api/docs)
-- 🔍 [Review deployment logs](DEPLOYMENT.md)
+```env
+DATABASE_URI=postgresql://user:pass@host:5432/db
+PAYLOAD_SECRET=your-secret-key
+NODE_ENV=development
+```
+
+### **Worker (.env)**
+
+```env
+DATABASE_URL=postgresql://user:pass@host:5432/db
+R2_ENDPOINT_URL=https://your-account.r2.cloudflarestorage.com
+R2_BUCKET_NAME=your-bucket
+R2_ACCESS_KEY_ID=your-key
+R2_SECRET_ACCESS_KEY=your-secret
+COOKIES_PATH=./savee_cookies.json
+```
+
+## 📝 Usage
+
+### **Start a Scraping Job**
+
+1. Access admin at `http://localhost:3000/admin`
+2. Navigate to **Engine** tab
+3. Enter savee.it URL (home, pop, or user profile)
+4. Set max items and click **Start Job**
+5. Monitor progress in real-time
+
+### **Manage Content**
+
+- View scraped blocks in **Blocks** collection
+- Track job history in **Runs** collection
+- Manage sources in **Sources** collection
+
+## 🏗️ Production Deployment
+
+- **CMS**: Deploy to Vercel/Railway with Neon PostgreSQL
+- **Worker**: Run as scheduled jobs on GitHub Actions or dedicated server
+- **Storage**: Cloudflare R2 for media files
+- **Database**: Neon PostgreSQL with connection pooling
+
+## 🛠️ Development
+
+### **Database Migrations**
+
+```bash
+# CMS (Payload migrations)
+cd apps/cms
+npx payload migrate
+
+# Worker (Alembic migrations)
+cd apps/worker
+alembic upgrade head
+```
+
+### **Code Quality**
+
+- TypeScript strict mode enabled
+- Comprehensive error handling
+- Production-ready logging
+- Clean, maintainable architecture
 
 ---
 
-**Built for Oracle Cloud Always Free VM deployment** 🏗️
+**Built for production use with enterprise-grade reliability and performance.**

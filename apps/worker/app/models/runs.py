@@ -1,12 +1,10 @@
 """
-Runs model - Defines scraping run executions
+Runs model - Enhanced with max_items configuration
 """
-from sqlalchemy import Boolean, DateTime, String, Text, JSON, ForeignKey
+from sqlalchemy import DateTime, String, Text, JSON, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from uuid import UUID
 from typing import Dict, Any, Optional
-import uuid
 
 from .base import Base
 
@@ -14,65 +12,84 @@ from .base import Base
 class Run(Base):
     __tablename__ = "runs"
 
-    # Primary key
-    id: Mapped[UUID] = mapped_column(
-        primary_key=True, 
-        default=uuid.uuid4,
-        doc="Unique identifier for this run"
+    # Primary key - using integer to match Payload
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True
     )
     
-    # Foreign key to source
-    source_id: Mapped[UUID] = mapped_column(
+    # Foreign key to source (integer to match)
+    source_id: Mapped[int] = mapped_column(
         ForeignKey("sources.id", ondelete="CASCADE"), 
         nullable=False,
         doc="Source that this run belongs to"
     )
     
-    # Run metadata
+    # Execution Info (per-run configuration)
     kind: Mapped[str] = mapped_column(
-        String(50), 
-        nullable=True,
-        doc="Type of run: 'tail', 'backfill', 'manual'"
+        String(50),
+        default="manual",
+        nullable=False,
+        doc="Execution type: 'manual' or 'scheduled'"
+    )
+    max_items: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=50,
+        doc="Maximum items to scrape for this run"
     )
     status: Mapped[str] = mapped_column(
         String(50), 
-        default="running", 
+        default="pending", 
         nullable=False,
-        doc="Run status: 'running', 'success', 'error', 'cancelled'"
+        doc="Run status: pending, running, paused, completed, error"
     )
     
-    # Execution tracking
-    started_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=False, 
-        server_default=func.now(),
-        doc="When this run started"
-    )
-    finished_at: Mapped[Optional[DateTime]] = mapped_column(
-        DateTime(timezone=True), 
-        nullable=True,
-        doc="When this run completed (null if still running)"
-    )
-    
-    # Results and metrics
+    # Counters (matching CMS JSON structure)
     counters: Mapped[Dict[str, Any]] = mapped_column(
         JSON, 
         nullable=True,
-        doc="Run metrics: items_discovered, items_processed, errors, etc."
+        default=lambda: {"found": 0, "uploaded": 0, "errors": 0},
+        doc="Run metrics: found, uploaded, errors"
     )
-    error: Mapped[str] = mapped_column(
+    
+    # Timestamps (matching CMS)
+    started_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), 
+        nullable=True,
+        doc="When this run started"
+    )
+    completed_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), 
+        nullable=True,
+        doc="When this run completed"
+    )
+    
+    # Error handling (matching CMS)
+    error_message: Mapped[str] = mapped_column(
         Text, 
         nullable=True,
         doc="Error message if run failed"
+    )
+    
+    # Payload timestamps
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), 
+        nullable=False, 
+        server_default=func.now(),
+        doc="When this run was created"
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), 
+        nullable=False, 
+        server_default=func.now(), 
+        onupdate=func.now(),
+        doc="When this run was last updated"
     )
 
     # Relationship to source
     source = relationship("Source", back_populates="runs")
 
     def __repr__(self) -> str:
-        return f"<Run(id={self.id}, source_id={self.source_id}, status='{self.status}', kind='{self.kind}')>"
-
-
-# Add the reverse relationship to Source
-from .sources import Source
-Source.runs = relationship("Run", back_populates="source", cascade="all, delete-orphan")
+        return f"<Run(id={self.id}, source_id={self.source_id}, status='{self.status}', max_items={self.max_items})>"

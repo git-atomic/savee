@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from ..models import Block, BlockOverride, Source
 from ..logging_config import get_logger, PerformanceLogger
-from ..scraper.savee import ParsedItem
+from typing import Any
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ class BlocksRepository:
     
     async def upsert_block_from_parsed_item(
         self, 
-        parsed_item: ParsedItem, 
+        parsed_item: Any, 
         source_id: UUID,
         media_keys: Dict[str, str]
     ) -> Block:
