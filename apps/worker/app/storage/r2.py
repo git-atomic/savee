@@ -294,8 +294,64 @@ class R2Storage:
         return deleted
     
     async def delete_all(self) -> int:
-        """Delete all objects in the bucket. Return count deleted."""
-        return await self.delete_prefix("")
+        """Delete all objects in the bucket, including all versions. Return count deleted."""
+        deleted = 0
+        
+        try:
+            # First, delete all current objects
+            deleted += await self.delete_prefix("")
+            
+            # Then, handle versioned objects if versioning is enabled
+            try:
+                # List all object versions
+                continuation = None
+                while True:
+                    kwargs = {
+                        'Bucket': settings.r2_bucket_name,
+                        'MaxKeys': 1000,
+                    }
+                    if continuation:
+                        kwargs['KeyMarker'] = continuation
+                    
+                    resp = await self.client.list_object_versions(**kwargs)
+                    
+                    # Delete all versions
+                    versions = resp.get('Versions', [])
+                    delete_markers = resp.get('DeleteMarkers', [])
+                    
+                    all_versions = []
+                    for version in versions:
+                        all_versions.append({
+                            'Key': version['Key'],
+                            'VersionId': version['VersionId']
+                        })
+                    
+                    for marker in delete_markers:
+                        all_versions.append({
+                            'Key': marker['Key'], 
+                            'VersionId': marker['VersionId']
+                        })
+                    
+                    if all_versions:
+                        await self.client.delete_objects(
+                            Bucket=settings.r2_bucket_name,
+                            Delete={'Objects': all_versions}
+                        )
+                        deleted += len(all_versions)
+                    
+                    if not resp.get('IsTruncated'):
+                        break
+                    continuation = resp.get('NextKeyMarker')
+                    
+            except Exception as version_error:
+                # Versioning might not be enabled, which is fine
+                logger.debug(f"No versioned objects to delete: {version_error}")
+                
+        except Exception as e:
+            logger.error(f"Failed to delete all objects: {e}")
+            raise
+            
+        return deleted
             
     async def list_objects(self, prefix: str = '', limit: int = 1000) -> List[Dict]:
         """List objects in bucket"""

@@ -11,6 +11,7 @@ from sqlalchemy.sql import func
 
 from app.config import settings
 from app.logging_config import setup_logging
+from app.logging import log_starting, log_fetch, log_scrape, log_upload, log_write, log_error, log_complete
 from app.models import Source, Run, Block
 from app.models.sources import SourceTypeEnum, SourceStatusEnum
 from app.models.runs import RunKindEnum, RunStatusEnum
@@ -198,6 +199,7 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
             
             counters['found'] = len(items)
             print(f"[STARTING] ■ {url} | Found {len(items)} items to process")
+            await log_starting(run_id, url, f"Found {len(items)} items to process")
             
             # Update run with found count
             await update_run_status(session, run_id, RunStatusEnum.running, counters)
@@ -262,6 +264,7 @@ async def run_scraper_for_url(url: str, max_items: int = 50) -> Dict[str, int]:
                     except Exception as e:
                         print(f"[ERROR] ✗ {item_url} | ❌ | {str(e)}")
                         logger.error(f"Failed to process item {item.external_id}: {e}")
+                        await log_error(run_id, item_url, str(e))
                         counters['errors'] += 1
                         
                         # Update error count
