@@ -330,10 +330,26 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
             if " - Savee" in title:
                 profile_data['display_name'] = title.replace(" - Savee", "").strip()
         
-        # Extract profile image URL
-        profile_img_match = re.search(r'<meta property="og:image" content="([^"]+)"', html_content)
-        if profile_img_match:
-            profile_data['profile_image_url'] = profile_img_match.group(1)
+        # Extract profile image URL - try multiple strategies
+        # 1) <img ... class~="rounded-full" ... src="...">
+        img_match = re.search(r'<img[^>]+class=["\"][^"\"]*rounded-full[^"\"]*["\"][^>]*src=["\"]([^"\"]+)["\"]', html_content, re.IGNORECASE | re.DOTALL)
+        if not img_match:
+            # Attributes may be in different order
+            img_match = re.search(r'<img[^>]*src=["\"]([^"\"]+)["\"][^>]+class=["\"][^"\"]*rounded-full[^"\"]*["\"]', html_content, re.IGNORECASE | re.DOTALL)
+        if img_match:
+            profile_data['profile_image_url'] = img_match.group(1)
+        
+        # 2) OpenGraph image fallback
+        if 'profile_image_url' not in profile_data:
+            profile_img_match = re.search(r'<meta\s+property=["\"]og:image["\"][^>]*content=["\"]([^"\"]+)["\"]', html_content, re.IGNORECASE)
+            if profile_img_match:
+                profile_data['profile_image_url'] = profile_img_match.group(1)
+        
+        # 3) Default avatar fallback
+        if 'profile_image_url' not in profile_data:
+            default_match = re.search(r'(https?://[^\s"\']+/default-avatar-\d+\.jpg)', html_content, re.IGNORECASE)
+            if default_match:
+                profile_data['profile_image_url'] = default_match.group(1)
         
         # Extract bio/description
         description_match = re.search(r'<meta property="og:description" content="([^"]+)"', html_content)

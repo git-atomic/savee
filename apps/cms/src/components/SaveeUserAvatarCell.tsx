@@ -10,7 +10,7 @@ type Row = {
 export default function SaveeUserAvatarCell({ data }: { data?: Row }) {
   const r2 = data?.profile_image_r2_key;
   const url = data?.profile_image_url;
-  const src = r2 ? `/api/engine/logs?key=${encodeURIComponent(r2)}` : url;
+  const src = r2 ? `/api/r2/presign?key=${encodeURIComponent(r2)}` : url;
   return (
     <div style={{ display: "flex", alignItems: "center" }}>
       {src ? (

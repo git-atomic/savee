@@ -221,6 +221,10 @@ export interface Block {
    * SaveeUser profile for user content organization
    */
   savee_user?: (number | null) | SaveeUser;
+  /**
+   * Filter by username (exact match)
+   */
+  _usernameFilter?: string | null;
   url: string;
   title?: string | null;
   description?: string | null;
@@ -538,6 +542,7 @@ export interface BlocksSelect<T extends boolean = true> {
   source?: T;
   run?: T;
   savee_user?: T;
+  _usernameFilter?: T;
   url?: T;
   title?: T;
   description?: T;
