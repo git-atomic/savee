@@ -55,6 +55,8 @@ class Block(Base):
         doc="Run that scraped this block"
     )
     
+    # Note: User-block relationships now handled via user_blocks junction table
+    
     # Content Info
     url: Mapped[str] = mapped_column(
         Text, 
@@ -93,11 +95,7 @@ class Block(Base):
         nullable=True,
         doc="Thumbnail URL"
     )
-    original_source_url: Mapped[str] = mapped_column(
-        Text, 
-        nullable=True,
-        doc="Original source URL before Savee"
-    )
+
     
     # Status and Processing
     status: Mapped[BlockStatusEnum] = mapped_column(
@@ -107,17 +105,64 @@ class Block(Base):
         doc="Processing status: pending, fetched, scraped, uploaded, error"
     )
     
-    # Metadata
-    tags: Mapped[Dict[str, Any]] = mapped_column(
+    # Comprehensive OpenGraph Metadata
+    og_title: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="OpenGraph title from meta tags"
+    )
+    og_description: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="OpenGraph description from meta tags"
+    )
+    og_image_url: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="OpenGraph image URL from meta tags"
+    )
+    og_url: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="OpenGraph canonical URL"
+    )
+    source_api_url: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="Savee API endpoint for source resolution"
+    )
+    saved_at: Mapped[str] = mapped_column(
+        Text, 
+        nullable=True,
+        doc="ISO timestamp when item was scraped"
+    )
+
+    # Rich Metadata for Filtering/Search
+    color_hexes: Mapped[Dict[str, Any]] = mapped_column(
         JSON, 
         nullable=True,
-        doc="Content tags"
+        doc="Array of hex color codes extracted from image"
+    )
+    ai_tags: Mapped[Dict[str, Any]] = mapped_column(
+        JSON, 
+        nullable=True,
+        doc="AI-generated descriptive tags for content"
+    )
+    colors: Mapped[Dict[str, Any]] = mapped_column(
+        JSON, 
+        nullable=True,
+        doc="Array of RGB color values"
+    )
+    links: Mapped[Dict[str, Any]] = mapped_column(
+        JSON, 
+        nullable=True,
+        doc="Links extracted from item sidebar (includes original source URLs)"
     )
     metadata_: Mapped[Dict[str, Any]] = mapped_column(
         "metadata",  # Specify the actual column name
         JSON, 
         nullable=True,
-        doc="Additional metadata"
+        doc="Complete sidebar info and other metadata"
     )
     
     # Storage

@@ -246,6 +246,101 @@ def build_item_collect_js() -> str:
 '''
 
 
+def build_item_collect_js() -> str:
+    """
+    Comprehensive item data collection JavaScript from savee_scraper.py
+    This extracts colors, AI tags, source URLs, and detailed sidebar information
+    """
+    return r'''
+(function() {
+  function getInfoButton() {
+    const selectors = [
+      'button[title^="Info" i]',
+      'button[title*="Info" i]',
+      'button:has(> span > span.hidden:text("Info"))',
+      'button:has(svg)'
+    ];
+    for (const sel of selectors) {
+      try {
+        const el = document.querySelector(sel);
+        if (el && ((el.getAttribute('title')||'').toLowerCase().includes('info') || (el.innerText||'').toLowerCase().includes('info'))) return el;
+      } catch(e) {}
+    }
+    // fallback: any button whose title contains Info
+    const btns = Array.from(document.querySelectorAll('button'));
+    const found = btns.find(b => ((b.getAttribute('title')||'').toLowerCase().includes('info') || (b.innerText||'').toLowerCase().includes('info')));
+    return found || null;
+  }
+
+  function openInfoAndWait(maxTries = 8, stepMs = 250) {
+    return new Promise(resolve => {
+      let tries = 0;
+      function attempt() {
+        const panel = document.querySelector('#infoSideBar');
+        if (panel) return resolve(true);
+        const btn = getInfoButton();
+        if (btn) {
+          try { btn.click(); } catch(e) {}
+        }
+        tries += 1;
+        if (tries >= maxTries) return resolve(false);
+        setTimeout(attempt, stepMs);
+      }
+      attempt();
+    });
+  }
+
+  async function collect() {
+    try {
+      const container = document.querySelector('[data-testid="image-container"]');
+      const imgEl = container ? container.querySelector('[data-testid="image-original"]') : null;
+      const videoEl = container ? (container.querySelector('video[slot="media"]') || container.querySelector('video')) : null;
+      const imageOriginalSrc = imgEl ? (imgEl.src || imgEl.getAttribute('src') || imgEl.getAttribute('data-src')) : null;
+      const videoSrc = videoEl ? (videoEl.src || videoEl.getAttribute('src')) : null;
+      const videoPosterSrc = videoEl ? (videoEl.poster || videoEl.getAttribute('poster')) : null;
+
+      await openInfoAndWait(10, 300);
+      const sidebarRoot = document.querySelector('#infoSideBar .space-y-8.px-6') || document.querySelector('#infoSideBar') || null;
+      const info = {};
+      let sourceApiUrl = null;
+      let colorHexes = [];
+      let aiTags = [];
+      let sidebarTitle = null;
+
+      if (sidebarRoot) {
+        // title: try specific overflow/heading, else first large text
+        const titleCand = sidebarRoot.querySelector('.text-overflow, .text-lg');
+        sidebarTitle = titleCand ? (titleCand.textContent||'').trim() : null;
+
+        const allAnchors = Array.from(sidebarRoot.querySelectorAll('a'));
+        const links = allAnchors.map(a => ({ href: a.href, text: (a.textContent||'').trim(), title: (a.title||'') }));
+        const texts = Array.from(sidebarRoot.querySelectorAll('p,li,div')).map(n => (n.textContent||'').trim()).filter(Boolean).slice(0, 800);
+        const tags = allAnchors.map(a => (a.textContent||'').trim()).filter(t => t.startsWith('#'));
+        // AI tags are anchors under /search/?q= that are not color hashtags
+        aiTags = allAnchors
+          .filter(a => (a.getAttribute('href')||'').includes('/search/?q='))
+          .map(a => (a.textContent||'').trim())
+          .filter(t => t && !t.startsWith('#'));
+        const colorAnchors = allAnchors.filter(a => (a.title||'').startsWith('Search by #'));
+        colorHexes = Array.from(new Set(colorAnchors.map(a => (a.title||'').replace('Search by ', '').trim()).filter(t => /^#[0-9A-Fa-f]{3,8}$/.test(t))));
+        const colorEls = Array.from(sidebarRoot.querySelectorAll('[style*="background"]'));
+        const colors = colorEls.map(el => { const s = el.getAttribute('style') || ''; const m = s.match(/background(?:-color)?:\s*([^;]+)/i); return m ? m[1].trim() : null; }).filter(Boolean);
+        const srcLink = allAnchors.find(a => /\/api\/items\/[^/]+\/source\/?$/i.test(a.href));
+        sourceApiUrl = srcLink ? srcLink.href : null;
+        info.links = links; info.texts = texts; info.tags = Array.from(new Set(tags)); info.colors = Array.from(new Set(colors)); info.colorHexes = Array.from(new Set(colorHexes)); info.aiTags = Array.from(new Set(aiTags)); info.sidebarTitle = sidebarTitle;
+      }
+
+      document.documentElement.setAttribute('data-savee-item', encodeURIComponent(JSON.stringify({ imageOriginalSrc, videoSrc, videoPosterSrc, sourceApiUrl, info })));
+    } catch (e) {
+      document.documentElement.setAttribute('data-savee-item', encodeURIComponent(JSON.stringify({ imageOriginalSrc: null, videoSrc: null, videoPosterSrc: null, sourceApiUrl: null, info: {} })));
+    }
+  }
+
+  setTimeout(() => { collect(); }, 400);
+})();
+'''
+
+
 def build_login_js(email: str, password: str) -> str:
     # Best-effort generic login filler
     js = (
@@ -491,7 +586,12 @@ class SaveeScraper:
                 base_url0 = f"{sp0.scheme}://{sp0.netloc}"
                 await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
 
-            listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=3, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
+            # Allow environment to control shallow/fast listings
+            try:
+                scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '3'))
+            except Exception:
+                scroll_steps = 3
+            listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
             if not listing_html:
                 return items
 
@@ -572,7 +672,11 @@ class SaveeScraper:
                     await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
 
                 logger.info(f"Starting real-time scraping: {url}")
-                listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=3, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
+                try:
+                    scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '3'))
+                except Exception:
+                    scroll_steps = 3
+                listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
                 if not listing_html:
                     logger.warning(f"No HTML content retrieved from {url}")
                     return
@@ -583,9 +687,14 @@ class SaveeScraper:
                     logger.info("No item links discovered.")
                     return
 
-                logger.info(f"Found {len(item_links)} items on {url}")
+                # Limit item links to max_items if specified
+                if max_items:
+                    item_links = item_links[:max_items]
+                
+                logger.info(f"Found {len(item_links)} items to process on {url}")
 
                 # Process each item one by one (real-time)
+                new_seen_in_batch = 0
                 for item_link in item_links:
                     if max_items and count >= max_items:
                         break
@@ -600,6 +709,7 @@ class SaveeScraper:
                         if item:
                             seen_ids.add(item_id)
                             count += 1
+                            new_seen_in_batch += 1
                             logger.info(f"Scraped item {count}: {item.external_id}")
                             yield item  # Yield immediately for real-time processing
                         else:
@@ -608,6 +718,11 @@ class SaveeScraper:
                         logger.error(f"Error scraping item {item_link}: {e}")
                         continue
 
+                # If we didn't see any new IDs in this listing pass, return early to avoid rescanning from the top
+                if new_seen_in_batch == 0:
+                    logger.info("No new items discovered in listing; stopping iterator early")
+                    return
+
                 logger.info(f"Completed real-time scraping: {count} items processed")
 
         except Exception as e:
@@ -615,7 +730,7 @@ class SaveeScraper:
             return
 
     async def _scrape_item_details(self, crawler: AsyncWebCrawler, item_url: str) -> Optional[ScrapedItem]:
-        """Scrape individual item details using Crawl4AI."""
+        """Scrape individual item details with comprehensive metadata extraction."""
         html = await self._fetch_item_with_collect(crawler, item_url) or await self._fetch_html(crawler, item_url)
         if not html:
             return None
@@ -624,6 +739,7 @@ class SaveeScraper:
         if not item_id:
             return None
 
+        # Extract JavaScript-collected data
         item_data = _parse_item_data_from_attr(html) or {}
         hd_image = item_data.get("imageOriginalSrc")
         video_src = item_data.get("videoSrc")
@@ -631,23 +747,153 @@ class SaveeScraper:
         source_api_url = item_data.get("sourceApiUrl")
         sidebar_info = item_data.get('info') if isinstance(item_data.get('info'), dict) else {}
 
+        # Extract OpenGraph meta tags
         og_title, og_description, og_image_url, og_url = extract_meta_from_html(html)
 
+        # Determine media type and URLs
         media_type = "video" if video_src else "image"
-        media_url = video_src or hd_image or og_image_url
+        # Always keep both when available
+        primary_image = hd_image or og_image_url
+        media_url = video_src or primary_image
         if not media_url:
             return None
 
+        # Extract comprehensive data from sidebar info OR fallback to HTML parsing
+        color_hexes = []
+        ai_tags = []
+        colors = []
+        links = []
+        
+        if sidebar_info:
+            # Extract AI-generated tags
+            ai_tags = sidebar_info.get('aiTags', [])
+            # Extract color hex codes
+            color_hexes = sidebar_info.get('colorHexes', [])
+            # Extract RGB colors
+            colors = sidebar_info.get('colors', [])
+            # Extract links
+            links = sidebar_info.get('links', [])
+        else:
+            # Fallback: Extract comprehensive metadata from HTML when sidebar fails
+            logger.warning(f"Sidebar info empty for {item_id}, using enhanced HTML extraction")
+            
+            # Try to extract from raw HTML if JavaScript failed
+            _, color_hexes, ai_tags, colors, links = self._extract_metadata_from_html(html, item_url)
+
+        # Add source URL to links if available
+        if source_api_url:
+            try:
+                final_url = await self._fetch_source_final_url(crawler, source_api_url)
+                if final_url and final_url != source_api_url:
+                    # Add the resolved source URL to links
+                    links.append({"href": final_url, "text": "original source"})
+            except Exception as e:
+                logger.warning(f"Failed to resolve source URL for {item_id}: {e}")
+
+        # Use comprehensive title extraction
+        title = og_title or sidebar_info.get('sidebarTitle') or f"Item {item_id}"
+
+        # Format timestamps in ISO format
+        from datetime import datetime, timezone
+        saved_at = datetime.now(timezone.utc).isoformat()
+
         return ScrapedItem(
             external_id=item_id,
-            title=og_title or sidebar_info.get('sidebarTitle'),
+            title=title,
             description=og_description,
             media_type=media_type,
             media_url=media_url,
             thumbnail_url=video_poster if media_type == "video" else None,
             source_url=item_url,
-            tags=sidebar_info.get('tags', []) + sidebar_info.get('aiTags', []),
+            
+            # Comprehensive metadata (matching savee_scraper.py format)
+            page_url=item_url,
+            og_title=og_title,
+            og_description=og_description,
+            og_image_url=og_image_url,
+            og_url=og_url,
+            saved_at=saved_at,
+            image_url=primary_image,
+            video_url=video_src,
+            video_poster_url=video_poster,
+            source_api_url=source_api_url,
+            
+            # Rich sidebar metadata
+            sidebar_info=sidebar_info,
+            color_hexes=color_hexes,
+            ai_tags=ai_tags,
+            colors=colors,
+            links=links
         )
+
+    def _extract_metadata_from_html(self, html: str, item_url: str) -> tuple:
+        """Enhanced HTML metadata extraction using regex patterns from savee_scraper.py"""
+        import re
+        
+        tags = []
+        color_hexes = []
+        ai_tags = []
+        colors = []
+        links = []
+        
+        try:
+            # Look for AI tags in search links - pattern: /search/?q=TERM
+            ai_tag_pattern = r'href="[^"]*\/search\/\?q=([^"&]+)"[^>]*>([^<]+)<'
+            ai_matches = re.findall(ai_tag_pattern, html)
+            for match in ai_matches:
+                term = match[1].strip()
+                if term and not term.startswith('#') and len(term) < 20:
+                    ai_tags.append(term)
+            
+            # Look for color hex codes in links - pattern: Search by #HEXCODE
+            color_pattern = r'title="Search by (#[0-9A-Fa-f]{3,8})"'
+            color_matches = re.findall(color_pattern, html)
+            color_hexes.extend(color_matches)
+            
+            # Look for hashtags in links
+            hashtag_pattern = r'href="[^"]*"[^>]*>(#\w+)<'
+            hashtag_matches = re.findall(hashtag_pattern, html)
+            tags.extend(hashtag_matches)
+            
+            # Look for background color styles to extract RGB colors
+            bg_color_pattern = r'style="[^"]*background(?:-color)?:\s*([^;"]+)'
+            bg_matches = re.findall(bg_color_pattern, html)
+            colors.extend([match.strip() for match in bg_matches if match.strip()])
+            
+            # Extract links from the page
+            link_pattern = r'href="([^"]+)"[^>]*>([^<]+)<'
+            link_matches = re.findall(link_pattern, html)
+            for href, text in link_matches:
+                if href.startswith('http') and text.strip():
+                    links.append({"href": href, "text": text.strip()})
+            
+            # Remove duplicates
+            tags = list(set(tags))
+            color_hexes = list(set(color_hexes))
+            ai_tags = list(set(ai_tags))
+            colors = list(set(colors))
+            
+            logger.info(f"HTML extraction found: {len(ai_tags)} AI tags, {len(color_hexes)} colors, {len(tags)} hashtags")
+            
+        except Exception as e:
+            logger.warning(f"HTML metadata extraction failed: {e}")
+        
+        return tags, color_hexes, ai_tags, colors, links
+
+    async def _fetch_source_final_url(self, crawler: AsyncWebCrawler, api_url: str) -> Optional[str]:
+        """Fetch the final URL from the source API endpoint."""
+        try:
+            from crawl4ai import CrawlerRunConfig
+            cfg = CrawlerRunConfig(
+                wait_for="js:() => true",
+                page_timeout=20000,
+            )
+            result = await crawler.arun(url=api_url, config=cfg)
+            if getattr(result, 'success', False):
+                return getattr(result, 'url', None)
+        except Exception as e:
+            logger.error(f"Failed to fetch source final URL {api_url}: {e}")
+        return None
 
     # Compatibility shim for queue consumer (if it still exists and calls _scrape_item)
     async def _scrape_item(self, session, item_url: str) -> Optional[ScrapedItem]:

@@ -1,0 +1,20 @@
+name: Engine Monitor
+
+on:
+  schedule:
+    - cron: "*/1 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger monitor
+        env:
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
+        run: |
+          : "${MONITOR_URL:?Missing MONITOR_URL secret (e.g. https://api.example.com/api/engine/monitor)}"
+          curl -fsS -X POST "$MONITOR_URL" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" || true

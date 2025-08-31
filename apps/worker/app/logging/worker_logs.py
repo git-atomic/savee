@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
+import aiohttp
 from app.config import settings
 
 try:
@@ -115,6 +116,28 @@ async def get_worker_logger() -> WorkerLogger:
         await _logger.connect()
     return _logger
 
+async def _send_log_to_cms(run_id: int, log_data: Dict):
+    """Send log entry to CMS API for real-time display"""
+    try:
+        # Determine CMS URL
+        cms_url = getattr(settings, 'CMS_URL', 'http://localhost:3000')
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{cms_url}/api/engine/logs",
+                json={
+                    "jobId": str(run_id),
+                    "log": log_data
+                },
+                timeout=aiohttp.ClientTimeout(total=5)
+            ) as response:
+                if response.status != 200:
+                    # Silently fail - CMS may not be ready yet
+                    pass
+    except Exception:
+        # Silently fail - CMS may not be ready yet
+        pass
+
 # Convenience functions for logging different types of events
 async def log_starting(run_id: int, url: str, message: str = ""):
     logger = await get_worker_logger()
@@ -126,6 +149,14 @@ async def log_starting(run_id: int, url: str, message: str = ""):
         status="✓",
         message=message
     ))
+    
+    # Also send to CMS API for real-time display
+    await _send_log_to_cms(run_id, {
+        "type": "STARTING",
+        "url": url,
+        "status": "✓",
+        "message": message
+    })
 
 async def log_fetch(run_id: int, item_url: str, timing: float, success: bool = True):
     logger = await get_worker_logger()
@@ -194,3 +225,12 @@ async def log_complete(run_id: int, item_url: str, timing: float, progress: str)
         timing=timing,
         progress=progress
     ))
+    
+    # Also send to CMS API for real-time display
+    await _send_log_to_cms(run_id, {
+        "type": "COMPLETE",
+        "url": item_url,
+        "status": "✓",
+        "timing": f"{timing:.2f}s",
+        "message": progress
+    })

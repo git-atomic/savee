@@ -5,7 +5,7 @@ import asyncio
 import json
 import sys
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
@@ -19,7 +19,7 @@ logger = setup_logging(__name__)
 
 
 class ScrapedItem(BaseModel):
-    """Scraped item data structure"""
+    """Scraped item data structure with comprehensive metadata"""
     external_id: str
     title: Optional[str] = None
     description: Optional[str] = None
@@ -33,6 +33,26 @@ class ScrapedItem(BaseModel):
     height: Optional[int] = None
     file_size: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Comprehensive metadata fields (matching savee_scraper.py format)
+    page_url: Optional[str] = None
+    og_title: Optional[str] = None
+    og_description: Optional[str] = None
+    og_image_url: Optional[str] = None
+    og_url: Optional[str] = None
+    saved_at: Optional[str] = None
+    image_url: Optional[str] = None
+    video_url: Optional[str] = None
+    video_poster_url: Optional[str] = None
+    source_api_url: Optional[str] = None
+    source_original_url: Optional[str] = None
+    
+    # Rich sidebar metadata
+    sidebar_info: Optional[Dict] = Field(default_factory=dict)
+    color_hexes: List[str] = Field(default_factory=list)
+    ai_tags: List[str] = Field(default_factory=list)
+    colors: List[str] = Field(default_factory=list)
+    links: List[Dict] = Field(default_factory=list)
 
 
 class SaveeSession:

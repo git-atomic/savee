@@ -71,6 +71,7 @@ export interface Config {
     sources: Source;
     runs: Run;
     blocks: Block;
+    savee_users: SaveeUser;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
@@ -81,6 +82,7 @@ export interface Config {
     sources: SourcesSelect<false> | SourcesSelect<true>;
     runs: RunsSelect<false> | RunsSelect<true>;
     blocks: BlocksSelect<false> | BlocksSelect<true>;
+    savee_users: SaveeUsersSelect<false> | SaveeUsersSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
@@ -173,12 +175,15 @@ export interface Source {
  */
 export interface Run {
   id: number;
+  /**
+   * Filter by source in the list view
+   */
   source: number | Source;
   kind: 'manual' | 'scheduled';
   /**
-   * Maximum number of items to scrape in this specific run
+   * 0 means unlimited; otherwise limit per run
    */
-  maxItems: number;
+  maxItems?: number | null;
   status: 'pending' | 'running' | 'paused' | 'completed' | 'error';
   /**
    * Real-time job metrics
@@ -209,22 +214,49 @@ export interface Block {
   /**
    * Unique identifier from Savee.it
    */
-  externalId: string;
+  external_id: string;
   source: number | Source;
   run: number | Run;
+  /**
+   * SaveeUser profile for user content organization
+   */
+  savee_user?: (number | null) | SaveeUser;
   url: string;
   title?: string | null;
   description?: string | null;
-  mediaType?: ('image' | 'video' | 'gif' | 'unknown') | null;
-  imageUrl?: string | null;
-  videoUrl?: string | null;
-  thumbnailUrl?: string | null;
-  /**
-   * Original URL where this content was found
-   */
-  originalSourceUrl?: string | null;
+  media_type?: ('image' | 'video' | 'gif' | 'unknown') | null;
+  image_url?: string | null;
+  video_url?: string | null;
+  thumbnail_url?: string | null;
   status: 'pending' | 'fetched' | 'scraped' | 'uploaded' | 'error';
-  tags?:
+  /**
+   * OpenGraph title from meta tags
+   */
+  og_title?: string | null;
+  /**
+   * OpenGraph description from meta tags
+   */
+  og_description?: string | null;
+  /**
+   * OpenGraph image URL from meta tags
+   */
+  og_image_url?: string | null;
+  /**
+   * OpenGraph canonical URL
+   */
+  og_url?: string | null;
+  /**
+   * Savee API endpoint for source resolution
+   */
+  source_api_url?: string | null;
+  /**
+   * ISO timestamp when item was scraped
+   */
+  saved_at?: string | null;
+  /**
+   * Array of hex color codes extracted from image
+   */
+  color_hexes?:
     | {
         [k: string]: unknown;
       }
@@ -233,6 +265,45 @@ export interface Block {
     | number
     | boolean
     | null;
+  /**
+   * AI-generated descriptive tags for content
+   */
+  ai_tags?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Array of RGB color values
+   */
+  colors?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Links extracted from item sidebar
+   */
+  links?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Complete sidebar info and other metadata
+   */
   metadata?:
     | {
         [k: string]: unknown;
@@ -242,8 +313,99 @@ export interface Block {
     | number
     | boolean
     | null;
-  r2Key?: string | null;
+  r2_key?: string | null;
   errorMessage?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Savee.com user profiles discovered during scraping
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "savee_users".
+ */
+export interface SaveeUser {
+  id: number;
+  /**
+   * Savee.com username (unique identifier)
+   */
+  username: string;
+  /**
+   * Display name shown on profile
+   */
+  display_name?: string | null;
+  /**
+   * User bio/description
+   */
+  bio?: string | null;
+  /**
+   * URL to profile avatar image
+   */
+  profile_image_url?: string | null;
+  /**
+   * R2 key of uploaded profile avatar
+   */
+  profile_image_r2_key?: string | null;
+  /**
+   * URL to profile cover/banner image
+   */
+  cover_image_url?: string | null;
+  /**
+   * Full URL to Savee profile page
+   */
+  profile_url: string;
+  /**
+   * Number of followers
+   */
+  follower_count?: number | null;
+  /**
+   * Number of people this user follows
+   */
+  following_count?: number | null;
+  /**
+   * Total number of saves/items
+   */
+  saves_count?: number | null;
+  /**
+   * Number of collections created
+   */
+  collections_count?: number | null;
+  /**
+   * User location (if provided)
+   */
+  location?: string | null;
+  /**
+   * Personal website URL
+   */
+  website_url?: string | null;
+  /**
+   * Social media links and profiles
+   */
+  social_links?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Whether the user has a verified account
+   */
+  is_verified?: boolean | null;
+  /**
+   * Whether the account is still active
+   */
+  is_active?: boolean | null;
+  /**
+   * When this profile was last updated/scraped
+   */
+  last_scraped_at?: string | null;
+  /**
+   * When this user was first discovered
+   */
+  first_discovered_at?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -269,6 +431,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'blocks';
         value: number | Block;
+      } | null)
+    | ({
+        relationTo: 'savee_users';
+        value: number | SaveeUser;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -368,22 +534,57 @@ export interface RunsSelect<T extends boolean = true> {
  * via the `definition` "blocks_select".
  */
 export interface BlocksSelect<T extends boolean = true> {
-  externalId?: T;
+  external_id?: T;
   source?: T;
   run?: T;
+  savee_user?: T;
   url?: T;
   title?: T;
   description?: T;
-  mediaType?: T;
-  imageUrl?: T;
-  videoUrl?: T;
-  thumbnailUrl?: T;
-  originalSourceUrl?: T;
+  media_type?: T;
+  image_url?: T;
+  video_url?: T;
+  thumbnail_url?: T;
   status?: T;
-  tags?: T;
+  og_title?: T;
+  og_description?: T;
+  og_image_url?: T;
+  og_url?: T;
+  source_api_url?: T;
+  saved_at?: T;
+  color_hexes?: T;
+  ai_tags?: T;
+  colors?: T;
+  links?: T;
   metadata?: T;
-  r2Key?: T;
+  r2_key?: T;
   errorMessage?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "savee_users_select".
+ */
+export interface SaveeUsersSelect<T extends boolean = true> {
+  username?: T;
+  display_name?: T;
+  bio?: T;
+  profile_image_url?: T;
+  profile_image_r2_key?: T;
+  cover_image_url?: T;
+  profile_url?: T;
+  follower_count?: T;
+  following_count?: T;
+  saves_count?: T;
+  collections_count?: T;
+  location?: T;
+  website_url?: T;
+  social_links?: T;
+  is_verified?: T;
+  is_active?: T;
+  last_scraped_at?: T;
+  first_discovered_at?: T;
   updatedAt?: T;
   createdAt?: T;
 }

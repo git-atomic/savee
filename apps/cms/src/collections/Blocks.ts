@@ -5,8 +5,11 @@ export const Blocks: CollectionConfig = {
   admin: {
     useAsTitle: "title",
     defaultColumns: [
+      "preview",
       "title",
-      "mediaType",
+      "media_type", // Match database column name
+      "origin", // Computed: home | pop | username
+      "saved_by",
       "status",
       "source",
       "run",
@@ -21,9 +24,43 @@ export const Blocks: CollectionConfig = {
     delete: () => true,
   },
   fields: [
+    // Preview (admin-only UI field)
+    {
+      name: "preview",
+      type: "ui",
+      label: "Preview",
+      admin: {
+        components: {
+          Cell: "@/components/BlockPreviewCell",
+        },
+      },
+    },
+    // Saved by usernames
+    {
+      name: "saved_by",
+      type: "ui",
+      label: "Saved By",
+      admin: {
+        components: {
+          Cell: "@/components/BlockUsersCell",
+        },
+      },
+    },
+    // Origin (computed from source.sourceType / username)
+    {
+      name: "origin",
+      type: "ui",
+      label: "Savee User / Origin",
+      admin: {
+        description: "home | pop | username (computed)",
+        components: {
+          Cell: "@/components/BlockOriginCell",
+        },
+      },
+    },
     // External Reference
     {
-      name: "externalId",
+      name: "external_id", // Match database column name
       type: "text",
       required: true,
       unique: true,
@@ -48,6 +85,16 @@ export const Blocks: CollectionConfig = {
       required: true,
       label: "Run",
     },
+    {
+      name: "savee_user",
+      type: "relationship",
+      relationTo: "savee_users",
+      label: "Savee User",
+      admin: {
+        description: "SaveeUser profile for user content organization",
+        position: "sidebar",
+      },
+    },
 
     // Content Info
     {
@@ -69,7 +116,7 @@ export const Blocks: CollectionConfig = {
 
     // Media Information
     {
-      name: "mediaType",
+      name: "media_type", // Match database column name
       type: "select",
       label: "Media Type",
       options: [
@@ -80,27 +127,19 @@ export const Blocks: CollectionConfig = {
       ],
     },
     {
-      name: "imageUrl",
+      name: "image_url", // Match database column name
       type: "text",
       label: "Image URL",
     },
     {
-      name: "videoUrl",
+      name: "video_url", // Match database column name
       type: "text",
       label: "Video URL",
     },
     {
-      name: "thumbnailUrl",
+      name: "thumbnail_url", // Match database column name
       type: "text",
       label: "Thumbnail URL",
-    },
-    {
-      name: "originalSourceUrl",
-      type: "text",
-      label: "Original Source URL",
-      admin: {
-        description: "Original URL where this content was found",
-      },
     },
 
     // Status and Processing
@@ -119,21 +158,101 @@ export const Blocks: CollectionConfig = {
       ],
     },
 
-    // Metadata
+    // Comprehensive OpenGraph Metadata
     {
-      name: "tags",
+      name: "og_title", // Match database column name
+      type: "text",
+      label: "OG Title",
+      admin: {
+        description: "OpenGraph title from meta tags",
+      },
+    },
+    {
+      name: "og_description", // Match database column name
+      type: "textarea",
+      label: "OG Description",
+      admin: {
+        description: "OpenGraph description from meta tags",
+      },
+    },
+    {
+      name: "og_image_url", // Match database column name
+      type: "text",
+      label: "OG Image URL",
+      admin: {
+        description: "OpenGraph image URL from meta tags",
+      },
+    },
+    {
+      name: "og_url", // Match database column name
+      type: "text",
+      label: "OG URL",
+      admin: {
+        description: "OpenGraph canonical URL",
+      },
+    },
+    {
+      name: "source_api_url", // Match database column name
+      type: "text",
+      label: "Source API URL",
+      admin: {
+        description: "Savee API endpoint for source resolution",
+      },
+    },
+    {
+      name: "saved_at", // Match database column name
+      type: "text",
+      label: "Saved At",
+      admin: {
+        description: "ISO timestamp when item was scraped",
+      },
+    },
+
+    // Rich Metadata for Filtering/Search
+    {
+      name: "color_hexes", // Match database column name
       type: "json",
-      label: "Content Tags",
+      label: "Color Hex Codes",
+      admin: {
+        description: "Array of hex color codes extracted from image",
+      },
+    },
+    {
+      name: "ai_tags", // Match database column name
+      type: "json",
+      label: "AI Generated Tags",
+      admin: {
+        description: "AI-generated descriptive tags for content",
+      },
+    },
+    {
+      name: "colors",
+      type: "json",
+      label: "RGB Colors",
+      admin: {
+        description: "Array of RGB color values",
+      },
+    },
+    {
+      name: "links",
+      type: "json",
+      label: "Sidebar Links",
+      admin: {
+        description: "Links extracted from item sidebar",
+      },
     },
     {
       name: "metadata",
       type: "json",
       label: "Additional Metadata",
+      admin: {
+        description: "Complete sidebar info and other metadata",
+      },
     },
 
     // Storage
     {
-      name: "r2Key",
+      name: "r2_key", // Match database column name
       type: "text",
       label: "R2 Storage Key",
       admin: {

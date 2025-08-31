@@ -66,9 +66,9 @@ export const Sources: CollectionConfig = {
       ({ data }) => {
         // Auto-set username from URL for user sources
         if (data.sourceType === "user" && data.url && !data.username) {
-          const urlMatch = data.url.match(/savee\.it\/([^\/\?]+)/);
+          const urlMatch = data.url.match(/savee\.(it|com)\/([^\/\?]+)/);
           if (urlMatch) {
-            data.username = urlMatch[1];
+            data.username = urlMatch[2]; // Second capture group now contains the username
           }
         }
         return data;

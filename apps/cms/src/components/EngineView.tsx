@@ -1,19 +1,22 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 // Types
 interface JobData {
   id: string;
+  runId?: string; // Run ID for fetching logs
   url: string;
   sourceType: "home" | "pop" | "user";
   username?: string;
   maxItems: number;
   status: "active" | "running" | "paused" | "error" | "completed";
+  runStatus?: string; // Separate run status for pause badge
   counters: {
     found: number;
     uploaded: number;
     errors: number;
+    skipped?: number;
   };
   lastRun?: string;
   nextRun?: string;
@@ -24,7 +27,7 @@ interface LogEntry {
   timestamp: string;
   type: "STARTING" | "FETCH" | "SCRAPE" | "COMPLETE" | "WRITE/UPLOAD" | "ERROR";
   url: string;
-  status: "✓" | "❌";
+  status: "✓" | "❌" | "⏳";
   timing?: string;
   message?: string;
 }
@@ -39,11 +42,18 @@ export default function EngineView() {
   // Jobs state
   const [jobs, setJobs] = useState<JobData[]>([]);
   const [logs, setLogs] = useState<Record<string, LogEntry[]>>({});
+  const [isAutoScroll, setIsAutoScroll] = useState<Record<string, boolean>>({});
+  const logsContainerRef = useRef<Record<string, HTMLDivElement | null>>({});
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const logsEndRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const jobsRef = useRef<JobData[]>([]); // Ref to access current jobs in intervals
   const [, setEditingJob] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     jobId: string;
     confirmUrl: string;
+    deleteFromDb: boolean;
+    deleteFromR2: boolean;
+    deleteUsers: boolean;
   } | null>(null);
 
   // Auto-detect source type from URL
@@ -74,6 +84,7 @@ export default function EngineView() {
       if (response.ok) {
         const data = await response.json();
         setJobs(data.jobs || []);
+        jobsRef.current = data.jobs || []; // Update ref for interval access
       }
     } catch (error) {
       console.error("Failed to fetch jobs:", error);
@@ -112,47 +123,19 @@ export default function EngineView() {
     }
   };
 
-  // Job control actions
-  const controlJob = async (
-    jobId: string,
-    action: "pause" | "resume" | "run_now"
-  ) => {
-    try {
-      const response = await fetch("/api/engine/control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, action }),
-      });
-      if (response.ok) {
-        fetchJobs();
+  // Note: Generic controlJob removed - using specific pauseJob/resumeJob/runNowJob functions instead
+
+  // Auto-scroll (follow tail) when at bottom; pause following if user scrolls up
+  useEffect(() => {
+    Object.keys(logs).forEach((jobId) => {
+      if (!expandedJobs.has(jobId)) return;
+      const auto = isAutoScroll[jobId] ?? true;
+      const container = logsContainerRef.current[jobId];
+      if (auto && container) {
+        container.scrollTop = container.scrollHeight;
       }
-    } catch (error) {
-      console.error("Job control error:", error);
-    }
-  };
-
-  // Delete job
-  const deleteJob = async (jobId: string) => {
-    if (!deleteConfirm || deleteConfirm.jobId !== jobId) return;
-
-    const job = jobs.find((j) => j.id === jobId);
-    if (!job || deleteConfirm.confirmUrl !== job.url) {
-      alert("URL confirmation does not match");
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/engine/jobs/${jobId}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
-        fetchJobs();
-        setDeleteConfirm(null);
-      }
-    } catch (error) {
-      console.error("Delete job error:", error);
-    }
-  };
+    });
+  }, [logs, expandedJobs, isAutoScroll]);
 
   // Toggle job logs
   const toggleJobLogs = (jobId: string) => {
@@ -161,21 +144,142 @@ export default function EngineView() {
       newExpanded.delete(jobId);
     } else {
       newExpanded.add(jobId);
-      fetchJobLogs(jobId);
+      // Find the job and use its runId for fetching logs
+      const job = jobsRef.current.find((j) => j.id === jobId);
+      if (job && job.runId) {
+        fetchJobLogs(job.runId);
+      }
+      // enable follow by default when opening
+      setIsAutoScroll((prev) => ({ ...prev, [jobId]: true }));
     }
     setExpandedJobs(newExpanded);
   };
 
-  // Fetch job logs
-  const fetchJobLogs = async (jobId: string) => {
+  // Fetch job logs using runId but store by sourceId for display
+  const fetchJobLogs = async (runId: string) => {
     try {
-      const response = await fetch(`/api/engine/logs?jobId=${jobId}`);
+      const response = await fetch(`/api/engine/logs?runId=${runId}`); // Use runId parameter
       if (response.ok) {
         const data = await response.json();
-        setLogs((prev) => ({ ...prev, [jobId]: data.logs || [] }));
+        // Find which job this runId belongs to using ref
+        const job = jobsRef.current.find((j) => j.runId === runId);
+        if (job) {
+          setLogs((prev) => ({ ...prev, [job.id]: data.logs || [] }));
+        }
       }
     } catch (error) {
       console.error("Failed to fetch logs:", error);
+    }
+  };
+
+  // Control job functions
+  const pauseJob = async (jobId: string) => {
+    try {
+      const response = await fetch("/api/engine/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pause", jobId }),
+      });
+      if (response.ok) {
+        fetchJobs(); // Refresh job list
+      }
+    } catch (error) {
+      console.error("Pause job error:", error);
+    }
+  };
+
+  const resumeJob = async (jobId: string) => {
+    try {
+      const response = await fetch("/api/engine/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume", jobId }),
+      });
+      if (response.ok) {
+        fetchJobs(); // Refresh job list
+      }
+    } catch (error) {
+      console.error("Resume job error:", error);
+    }
+  };
+
+  const runNowJob = async (jobId: string) => {
+    try {
+      const response = await fetch("/api/engine/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run_now", jobId }),
+      });
+      if (response.ok) {
+        fetchJobs(); // Refresh job list
+      }
+    } catch (error) {
+      console.error("Run now job error:", error);
+    }
+  };
+
+  const deleteJob = async (jobId: string) => {
+    if (!deleteConfirm) return;
+
+    // Find the job to get its URL for validation
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    if (!job) {
+      alert("Job not found");
+      return;
+    }
+
+    // Validate URL confirmation
+    if (deleteConfirm.confirmUrl !== job.url) {
+      alert("URL confirmation does not match. Please type the exact URL.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/engine/jobs/${jobId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deleteFromDb: deleteConfirm.deleteFromDb,
+          deleteFromR2: deleteConfirm.deleteFromR2,
+          deleteUsers: deleteConfirm.deleteUsers,
+        }),
+      });
+
+      if (response.ok) {
+        fetchJobs(); // Refresh job list
+        setDeleteConfirm(null); // Close modal
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to delete job: ${errorData.error || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Delete job error:", error);
+      alert("Failed to delete job. Please try again.");
+    }
+  };
+
+  // Simple edit flow via prompt until modal is reintroduced
+  const editJob = async (jobId: string, currentUrl: string) => {
+    const newUrl = window.prompt(
+      "Enter new URL to scrape:",
+      currentUrl || "https://savee.com/"
+    );
+    if (!newUrl || newUrl.trim() === currentUrl) return;
+    try {
+      const resp = await fetch("/api/engine/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "edit", jobId, newUrl: newUrl.trim() }),
+      });
+      if (resp.ok) {
+        fetchJobs();
+        alert("Job URL updated and restarted successfully.");
+      } else {
+        alert("Failed to update job URL.");
+      }
+    } catch (e) {
+      console.error("Edit job error:", e);
+      alert("Failed to update job URL. Please try again.");
     }
   };
 
@@ -211,11 +315,27 @@ export default function EngineView() {
     }
   };
 
+  // Initial fetch
   useEffect(() => {
     fetchJobs();
-    const interval = setInterval(fetchJobs, 5000); // Refresh every 5s
-    return () => clearInterval(interval);
   }, []);
+
+  // Set up real-time polling - separate from jobs dependency
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchJobs();
+      // Fetch logs for expanded jobs using runId
+      expandedJobs.forEach((jobId) => {
+        const currentJobs = jobsRef.current; // Use ref to get current jobs
+        const job = currentJobs.find((j) => j.id === jobId);
+        if (job && job.runId) {
+          fetchJobLogs(job.runId);
+        }
+      });
+    }, 1000); // Poll every 1 second for real-time updates
+
+    return () => clearInterval(interval);
+  }, [expandedJobs]); // Only depend on expandedJobs, not jobs
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
@@ -318,6 +438,13 @@ export default function EngineView() {
                       >
                         {job.status.toUpperCase()}
                       </span>
+                      {/* Pause Badge - Show when run is paused */}
+                      {job.runStatus === "paused" && (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 flex items-center gap-1">
+                          <span>⏸</span>
+                          PAUSED
+                        </span>
+                      )}
                       <span className="text-sm text-gray-600">
                         {getSourceTypeDisplay(job.sourceType, job.username)}
                       </span>
@@ -325,62 +452,93 @@ export default function EngineView() {
                     <div className="text-sm font-mono text-gray-800">
                       {job.url}
                     </div>
+                    {job.nextRun && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Next run: {new Date(job.nextRun).toLocaleString()}
+                      </div>
+                    )}
                   </div>
 
                   {/* Job Controls */}
                   <div className="flex items-center gap-2">
-                    {/* Pause/Resume */}
-                    {job.status === "active" && (
+                    {/* Pause Button - Available for active AND running jobs, but not if already paused */}
+                    {(job.status === "active" || job.status === "running") &&
+                      job.runStatus !== "paused" && (
+                        <button
+                          onClick={() => pauseJob(job.id)}
+                          className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded text-sm hover:bg-yellow-200"
+                          title="Pause Job"
+                        >
+                          Pause
+                        </button>
+                      )}
+
+                    {/* Resume Button - Only for paused jobs */}
+                    {(job.status === "paused" ||
+                      job.runStatus === "paused") && (
                       <button
-                        onClick={() => controlJob(job.id, "pause")}
-                        className="text-yellow-600 hover:text-yellow-700 text-sm"
-                      >
-                        Pause
-                      </button>
-                    )}
-                    {job.status === "paused" && (
-                      <button
-                        onClick={() => controlJob(job.id, "resume")}
-                        className="text-green-600 hover:text-green-700 text-sm"
+                        onClick={() => resumeJob(job.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
+                        title="Resume Job"
                       >
                         Resume
                       </button>
                     )}
 
-                    {/* Run Now */}
+                    {/* Run Now Button - Only for active jobs */}
                     {job.status === "active" && (
                       <button
-                        onClick={() => controlJob(job.id, "run_now")}
-                        className="text-blue-600 hover:text-blue-700 text-sm"
+                        onClick={() => runNowJob(job.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
+                        title="Run Now"
                       >
                         Run Now
                       </button>
                     )}
 
-                    {/* Info Tooltip */}
+                    {/* Edit Button - Always visible; works via prompt; prefer paused */}
                     <button
-                      title={`Last run: ${job.lastRun || "Never"}\\nNext run: ${job.nextRun || "N/A"}`}
-                      className="text-gray-400 hover:text-gray-600"
+                      onClick={() => editJob(job.id, job.url)}
+                      className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm hover:bg-purple-200"
+                      title="Edit URL and restart scraping"
                     >
-                      ℹ️
+                      Edit
                     </button>
 
-                    {/* Edit (only if paused) */}
-                    {job.status === "paused" && (
-                      <button
-                        onClick={() => setEditingJob(job.id)}
-                        className="text-gray-600 hover:text-gray-700 text-sm"
-                      >
-                        Edit
-                      </button>
-                    )}
+                    {/* Info Button */}
+                    <button
+                      className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200"
+                      title={`Last run: ${job.lastRun ? new Date(job.lastRun).toLocaleString() : "Never"}\nNext: ${
+                        job.status === "active"
+                          ? job.nextRun
+                            ? new Date(job.nextRun).toLocaleString()
+                            : "Soon"
+                          : job.runStatus === "paused" ||
+                              job.status === "paused"
+                            ? "Paused"
+                            : job.status === "running"
+                              ? "Currently running"
+                              : job.status === "error"
+                                ? "Error"
+                                : "N/A"
+                      }`}
+                    >
+                      Info
+                    </button>
 
                     {/* Delete */}
                     <button
                       onClick={() =>
-                        setDeleteConfirm({ jobId: job.id, confirmUrl: "" })
+                        setDeleteConfirm({
+                          jobId: job.id,
+                          confirmUrl: "",
+                          deleteFromDb: true,
+                          deleteFromR2: true,
+                          deleteUsers: true,
+                        })
                       }
-                      className="text-red-600 hover:text-red-700 text-sm"
+                      className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200"
+                      title="Delete Job (requires URL confirmation)"
                     >
                       Delete
                     </button>
@@ -393,8 +551,13 @@ export default function EngineView() {
                     <strong>{job.counters.uploaded}</strong> uploaded
                   </span>
                   <span className="text-blue-600">
-                    <strong>{job.counters.found}</strong> found
+                    <strong>{job.counters.found}</strong> processed
                   </span>
+                  {(job.counters.skipped ?? 0) > 0 && (
+                    <span className="text-gray-600">
+                      <strong>{job.counters.skipped}</strong> skipped
+                    </span>
+                  )}
                   {job.counters.errors > 0 && (
                     <span className="text-red-600">
                       <strong>{job.counters.errors}</strong> errors
@@ -430,40 +593,181 @@ export default function EngineView() {
 
                 {/* Logs Content */}
                 {expandedJobs.has(job.id) && (
-                  <div className="mt-4 bg-gray-50 rounded-md p-4 max-h-64 overflow-y-auto">
-                    <div className="font-mono text-xs space-y-1">
-                      {logs[job.id]?.length ? (
-                        logs[job.id].map((log, idx) => (
-                          <div key={idx} className="flex items-center gap-2">
-                            <span className="text-gray-500">
-                              {log.timestamp}
-                            </span>
-                            <span
-                              className={`${log.type === "ERROR" ? "text-red-600" : "text-gray-700"}`}
+                  <div className="mt-4">
+                    <div className="bg-gray-900 rounded-lg border border-gray-700">
+                      {/* Header */}
+                      <div className="px-4 py-3 bg-gray-800 rounded-t-lg border-b border-gray-700">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium text-gray-100">
+                            Real-time Logs
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-gray-400">Live</span>
+                            <button
+                              onClick={() => {
+                                // Jump to latest and re-enable auto-scroll
+                                logsEndRef.current[job.id]?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "end",
+                                });
+                                setIsAutoScroll((prev) => ({
+                                  ...prev,
+                                  [job.id]: true,
+                                }));
+                              }}
+                              className="ml-3 text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded"
+                              title="Jump to latest log"
                             >
-                              [{log.type}] {log.message || log.url}
-                            </span>
-                            {log.status && (
-                              <span
-                                className={
-                                  log.status === "✓"
-                                    ? "text-green-600"
-                                    : "text-red-600"
-                                }
-                              >
-                                {log.status}
-                              </span>
-                            )}
-                            {log.timing && (
-                              <span className="text-blue-600">
-                                ⏱: {log.timing}
-                              </span>
-                            )}
+                              Jump to latest
+                            </button>
                           </div>
-                        ))
-                      ) : (
-                        <div className="text-gray-500">No logs available</div>
-                      )}
+                        </div>
+                      </div>
+
+                      {/* Logs Container */}
+                      <div
+                        className="max-h-80 overflow-y-auto scroll-smooth bg-black/70 border-t border-gray-700"
+                        style={{ scrollBehavior: "smooth" }}
+                        ref={(el) => {
+                          if (el) {
+                            logsContainerRef.current[job.id] = el;
+                          }
+                        }}
+                        onScroll={(e) => {
+                          const el = e.currentTarget;
+                          const nearBottom =
+                            el.scrollHeight - el.scrollTop - el.clientHeight <
+                            40;
+                          setIsAutoScroll((prev) => ({
+                            ...prev,
+                            [job.id]: nearBottom,
+                          }));
+                        }}
+                      >
+                        {logs[job.id]?.length ? (
+                          <div className="p-4 space-y-3">
+                            {logs[job.id].map((log, idx) => {
+                              const isNewBlock =
+                                idx === 0 ||
+                                logs[job.id][idx - 1]?.type === "COMPLETE";
+
+                              return (
+                                <div key={idx}>
+                                  {/* Block Separator */}
+                                  {isNewBlock && idx > 0 && (
+                                    <div className="border-t border-gray-700 my-4"></div>
+                                  )}
+
+                                  {/* Log Entry */}
+                                  <div className="font-mono text-sm text-gray-200 bg-gray-900/70 border border-gray-700 rounded px-3 py-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      {/* [Date | Time] Badge */}
+                                      <span className="inline-flex items-center px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs">
+                                        [
+                                        {new Date(
+                                          log.timestamp
+                                        ).toLocaleDateString("en-US", {
+                                          month: "2-digit",
+                                          day: "2-digit",
+                                        })}{" "}
+                                        |{" "}
+                                        {new Date(
+                                          log.timestamp
+                                        ).toLocaleTimeString("en-US", {
+                                          hour12: false,
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          second: "2-digit",
+                                        })}
+                                        ]
+                                      </span>
+
+                                      {/* (TYPE) Badge */}
+                                      <span
+                                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                                          log.type === "STARTING"
+                                            ? "bg-blue-600 text-blue-100"
+                                            : log.type === "FETCH"
+                                              ? "bg-amber-600 text-amber-100"
+                                              : log.type === "SCRAPE"
+                                                ? "bg-purple-600 text-purple-100"
+                                                : log.type === "COMPLETE"
+                                                  ? "bg-green-600 text-green-100"
+                                                  : log.type === "WRITE/UPLOAD"
+                                                    ? "bg-indigo-600 text-indigo-100"
+                                                    : log.type === "ERROR"
+                                                      ? "bg-red-600 text-red-100"
+                                                      : "bg-gray-600 text-gray-100"
+                                        }`}
+                                      >
+                                        ({log.type})
+                                      </span>
+
+                                      {/* URL/Message */}
+                                      <span className="text-gray-200 flex-1 min-w-0 truncate">
+                                        {log.url || log.message}
+                                      </span>
+
+                                      {/* (✓/❌) Status Badge */}
+                                      {log.status && (
+                                        <span
+                                          className={`inline-flex items-center px-2 py-1 rounded text-xs ${
+                                            log.status === "✓" ||
+                                            log.status === "⏳"
+                                              ? "bg-green-600 text-green-100"
+                                              : "bg-red-600 text-red-100"
+                                          }`}
+                                        >
+                                          ({log.status})
+                                        </span>
+                                      )}
+
+                                      {/* (⏱ timing) Badge */}
+                                      {log.timing && (
+                                        <span className="inline-flex items-center px-2 py-1 rounded bg-gray-600 text-gray-200 text-xs">
+                                          (⏱ {log.timing})
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {/* Auto-scroll target */}
+                            <div
+                              ref={(el) => {
+                                if (el) {
+                                  logsEndRef.current[job.id] = el;
+                                }
+                              }}
+                              style={{ height: "1px" }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="p-8 text-center text-gray-500">
+                            <div className="w-12 h-12 mx-auto mb-3 bg-gray-800 rounded-lg flex items-center justify-center">
+                              <svg
+                                className="w-6 h-6"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                />
+                              </svg>
+                            </div>
+                            <p className="text-sm">No logs available</p>
+                            <p className="text-xs mt-1">
+                              Start a scraping job to see real-time logs
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -476,7 +780,7 @@ export default function EngineView() {
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
             <p className="text-gray-600 mb-4">
               Type the exact URL to confirm deletion:
@@ -493,12 +797,75 @@ export default function EngineView() {
               placeholder="Enter URL to confirm"
               className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
             />
+
+            {/* Deletion Options */}
+            <div className="mb-6">
+              <p className="text-sm font-medium text-gray-700 mb-3">
+                What to delete:
+              </p>
+              <div className="space-y-2">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirm.deleteFromDb}
+                    onChange={(e) =>
+                      setDeleteConfirm({
+                        ...deleteConfirm,
+                        deleteFromDb: e.target.checked,
+                      })
+                    }
+                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">
+                    Delete from Database (jobs, runs, logs)
+                  </span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirm.deleteFromR2}
+                    onChange={(e) =>
+                      setDeleteConfirm({
+                        ...deleteConfirm,
+                        deleteFromR2: e.target.checked,
+                      })
+                    }
+                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">
+                    Delete from R2 Storage (all scraped media)
+                  </span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirm.deleteUsers}
+                    onChange={(e) =>
+                      setDeleteConfirm({
+                        ...deleteConfirm,
+                        deleteUsers: e.target.checked,
+                      })
+                    }
+                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">
+                    Delete Users (savee_users and user_blocks)
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div className="flex gap-3">
               <button
                 onClick={() => deleteJob(deleteConfirm.jobId)}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md"
+                disabled={
+                  !deleteConfirm.deleteFromDb &&
+                  !deleteConfirm.deleteFromR2 &&
+                  !deleteConfirm.deleteUsers
+                }
+                className="bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-md"
               >
-                Delete
+                Delete Selected
               </button>
               <button
                 onClick={() => setDeleteConfirm(null)}

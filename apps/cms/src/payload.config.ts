@@ -9,6 +9,7 @@ import { Users } from "./collections/Users";
 import { Sources } from "./collections/Sources";
 import { Runs } from "./collections/Runs";
 import { Blocks } from "./collections/Blocks";
+import { SaveeUsers } from "./collections/SaveeUsers";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -34,7 +35,7 @@ export default buildConfig({
   },
 
   // Collections - Clean & Organized
-  collections: [Users, Sources, Runs, Blocks],
+  collections: [Users, Sources, Runs, Blocks, SaveeUsers],
 
   // No globals needed for this application
   globals: [],
@@ -56,6 +57,8 @@ export default buildConfig({
       connectionString: process.env.DATABASE_URI || "",
     },
     migrationDir: "./src/migrations",
+    // Prevent Payload from managing external tables
+    push: false,
   }),
 
   // Media handling

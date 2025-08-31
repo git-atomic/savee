@@ -5,8 +5,10 @@ export const Runs: CollectionConfig = {
   admin: {
     useAsTitle: "id",
     defaultColumns: [
+      "job_state",
       "id",
       "source",
+      // keep DB status but primary state is job_state above
       "status",
       "maxItems",
       "startedAt",
@@ -21,6 +23,18 @@ export const Runs: CollectionConfig = {
     delete: () => true,
   },
   fields: [
+    // Computed Job State (from Source.status)
+    {
+      name: "job_state",
+      label: "Job State",
+      type: "ui",
+      admin: {
+        components: {
+          Cell: "@/components/RunStateCell",
+        },
+        description: "active | paused | running (from Source)",
+      },
+    },
     // Relationships
     {
       name: "source",
@@ -28,6 +42,11 @@ export const Runs: CollectionConfig = {
       relationTo: "sources",
       required: true,
       label: "Source",
+      admin: {
+        allowCreate: false,
+        position: "sidebar",
+        description: "Filter by source in the list view",
+      },
     },
 
     // Execution Configuration (per-run)
@@ -45,13 +64,13 @@ export const Runs: CollectionConfig = {
     {
       name: "maxItems",
       type: "number",
-      required: true,
-      defaultValue: 50,
-      min: 1,
-      max: 1000,
+      required: false,
+      defaultValue: 0,
+      min: 0,
+      max: 1000000,
       label: "Max Items for This Run",
       admin: {
-        description: "Maximum number of items to scrape in this specific run",
+        description: "0 means unlimited; otherwise limit per run",
       },
     },
     {

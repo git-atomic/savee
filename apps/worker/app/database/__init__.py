@@ -3,10 +3,7 @@ Database package for ScrapeSavee worker
 """
 
 from .blocks import (
-    BlocksRepository,
-    BlockOverridesRepository,
-    upsert_block_from_savee_item,
-    get_block_by_savee_id
+    BlocksRepository
 )
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -29,8 +26,5 @@ def get_async_session() -> _SessionCtx:
     return _SessionCtx()
 
 __all__ = [
-    "BlocksRepository",
-    "BlockOverridesRepository", 
-    "upsert_block_from_savee_item",
-    "get_block_by_savee_id"
+    "BlocksRepository"
 ]

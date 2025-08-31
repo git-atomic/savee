@@ -94,26 +94,41 @@ class R2Storage:
         if not content_type:
             content_type = mimetypes.guess_type(key)[0] or 'application/octet-stream'
             
-        # Check if file already exists
-        if await self.object_exists(key):
-            logger.debug(f"File already exists: {key}")
-            return key
+        # Skip existence check to avoid 403 HeadObject permission errors
+        # R2 will overwrite if exists, which is fine for our use case
+        # if await self.object_exists(key):
+        #     logger.debug(f"File already exists: {key}")
+        #     return key
             
-        try:
-            await self.client.put_object(
-                Bucket=settings.r2_bucket_name,
-                Key=key,
-                Body=file_data,
-                ContentType=content_type,
-                CacheControl='public, max-age=31536000',  # 1 year
-            )
-            
-            logger.debug(f"Uploaded file: {key}")
-            return key
-            
-        except Exception as e:
-            logger.error(f"Failed to upload {key}: {e}")
-            raise
+        # Retry upload with exponential backoff for time skew issues
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await self.client.put_object(
+                    Bucket=settings.r2_bucket_name,
+                    Key=key,
+                    Body=file_data,
+                    ContentType=content_type,
+                    CacheControl='public, max-age=31536000',  # 1 year
+                )
+                
+                logger.debug(f"Uploaded file: {key}")
+                return key
+                
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                if error_code == 'RequestTimeTooSkewed' and attempt < max_retries - 1:
+                    # Wait and retry for time skew issues
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.warning(f"Time skew error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Failed to upload {key}: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Failed to upload {key}: {e}")
+                raise
             
     async def download_url(self, url: str) -> bytes:
         """Download file from URL"""

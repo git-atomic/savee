@@ -12,8 +12,6 @@ interface SourceData {
   username?: string;
 }
 
-
-
 export async function POST(request: NextRequest) {
   try {
     const { url, maxItems } = await request.json();
@@ -38,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create or find source
-              const sources = await payload.find({
+    const sources = await payload.find({
       collection: "sources",
       where: {
         url: { equals: url },
@@ -48,7 +46,7 @@ export async function POST(request: NextRequest) {
 
     let sourceId: number;
 
-              if (sources.docs.length === 0) {
+    if (sources.docs.length === 0) {
       const sourceData: SourceData = {
         url,
         sourceType: parsedUrl.sourceType,
@@ -64,11 +62,11 @@ export async function POST(request: NextRequest) {
         data: sourceData,
       });
       sourceId = newSource.id;
-                } else {
-              sourceId = sources.docs[0].id;
+    } else {
+      sourceId = sources.docs[0].id;
 
-              // Update username if provided and missing
-              if (parsedUrl.username && !sources.docs[0].username) {
+      // Update username if provided and missing
+      if (parsedUrl.username && !sources.docs[0].username) {
         await payload.update({
           collection: "sources",
           id: sourceId,
@@ -77,22 +75,43 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create run (maxItems belongs here now)
-    const run = await payload.create({
-      collection: "runs",
-      data: {
-        source: sourceId,
-        kind: "manual",
-        maxItems: maxItems || 50,
-        status: "pending",
-        counters: { found: 0, uploaded: 0, errors: 0 },
-        startedAt: new Date().toISOString(),
-      },
-    });
+    // Try to reuse the latest completed/error run for this source to avoid duplicates
+    const pool: any = (payload.db as any).pool;
+    const reuse = await pool.query(
+      `SELECT id FROM runs WHERE source_id = $1 AND status IN ('completed','error')
+       ORDER BY created_at DESC LIMIT 1`,
+      [sourceId]
+    );
+    let runId: number;
+    if (reuse.rows.length > 0) {
+      runId = reuse.rows[0].id as number;
+      await pool.query(
+        `UPDATE runs SET status = 'running', counters = $1, started_at = $2, completed_at = NULL, error_message = NULL, updated_at = now()
+         WHERE id = $3`,
+        [
+          JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
+          new Date(),
+          runId,
+        ]
+      );
+    } else {
+      const created = await payload.create({
+        collection: "runs",
+        data: {
+          source: sourceId,
+          kind: "manual",
+          maxItems: typeof maxItems === "number" && maxItems > 0 ? maxItems : 0,
+          status: "running",
+          counters: { found: 0, uploaded: 0, errors: 0 },
+          startedAt: new Date().toISOString(),
+        },
+      });
+      runId = created.id as number;
+    }
 
     // Start worker process
     const workerPath = path.resolve(process.cwd(), "../worker");
-    console.log(`🚀 Starting worker for run ${run.id} with URL: ${url}`);
+    console.log(`🚀 Starting worker for run ${runId} with URL: ${url}`);
 
     try {
       const pythonProcess = spawn(
@@ -103,7 +122,12 @@ export async function POST(request: NextRequest) {
           "--start-url",
           url,
           "--max-items",
-          (maxItems || 50).toString(),
+          (typeof maxItems === "number" && maxItems > 0
+            ? maxItems
+            : 0
+          ).toString(),
+          "--run-id",
+          String(runId),
         ],
         {
           cwd: workerPath,
@@ -127,7 +151,7 @@ export async function POST(request: NextRequest) {
         try {
           await payload.update({
             collection: "runs",
-            id: run.id,
+            id: runId,
             data: {
               status: code === 0 ? "completed" : "error",
               completedAt: new Date().toISOString(),
@@ -141,30 +165,24 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // Update run status to running
-      await payload.update({
-        collection: "runs",
-        id: run.id,
-        data: {
-          status: "running",
-          startedAt: new Date().toISOString(),
-        },
-      });
+      // Run is already marked running above
     } catch (error) {
       console.error("Failed to start worker:", error);
-      await payload.update({
-        collection: "runs",
-        id: run.id,
-        data: {
-          status: "error",
-          errorMessage: `Failed to start worker: ${error.message}`,
-        },
-      });
+      try {
+        await payload.update({
+          collection: "runs",
+          id: runId,
+          data: {
+            status: "error",
+            errorMessage: `Failed to start worker: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        });
+      } catch {}
     }
 
     return NextResponse.json({
       success: true,
-      runId: run.id,
+      runId,
       sourceType: parsedUrl.sourceType,
       username: parsedUrl.username,
       message: `Job started successfully for ${parsedUrl.sourceType} content${
