@@ -204,24 +204,24 @@ def _generate_r2_key(url: str, external_id: str) -> str:
     """Generate organized R2 key based on source type and URL
 
     Unified layout:
-      - savee/home/blocks/<external_id>
-      - savee/pop/blocks/<external_id>
-      - savee/users/<username>/blocks/<external_id>
+      - home/blocks/<external_id>
+      - pop/blocks/<external_id>
+      - users/<username>/blocks/<external_id>
     """
     source_type = _detect_source_type(url)
     
     if source_type == SourceTypeEnum.home:
-        return f"savee/home/blocks/{external_id}"
+        return f"home/blocks/{external_id}"
     elif source_type == SourceTypeEnum.pop:
-        return f"savee/pop/blocks/{external_id}"
+        return f"pop/blocks/{external_id}"
     elif source_type == SourceTypeEnum.user:
         username = _extract_username(url)
         if username:
-            return f"savee/users/{username}/blocks/{external_id}"
+            return f"users/{username}/blocks/{external_id}"
         else:
-            return f"savee/users/unknown/blocks/{external_id}"
+            return f"users/unknown/blocks/{external_id}"
     else:
-        return f"savee/misc/blocks/{external_id}"
+        return f"misc/blocks/{external_id}"
 
 async def _create_or_update_savee_user(session: AsyncSession, username: str, url: str) -> int:
     """Create or update SaveeUser profile with scraped data"""
@@ -263,8 +263,8 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                     if avatar_url:
                         try:
                             storage = R2Storage()
-                            # Store as savee/users/<username>/avatar/...
-                            base_key = f"savee/users/{username}/avatar"
+                            # Store as users/<username>/avatar/...
+                            base_key = f"users/{username}/avatar"
                             async with storage:
                                 uploaded_key = await storage.upload_image(avatar_url, base_key)
                             if uploaded_key:
@@ -718,10 +718,10 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                 # Early-exit when only-old items encountered consecutively
                 consecutive_old_items = 0
                 try:
-                    # Require many consecutive old items before early-exit
-                    only_old_exit_streak = int(os.getenv('ONLY_OLD_EXIT_STREAK', '50'))
+                    # When max_items is None/0 => unlimited, disable early-exit completely
+                    only_old_exit_streak = 10**9 if not max_items else int(os.getenv('ONLY_OLD_EXIT_STREAK', '50'))
                 except Exception:
-                    only_old_exit_streak = 50
+                    only_old_exit_streak = 10**9 if not max_items else 50
                 # Track unique external IDs seen in this run session to avoid counting duplicates from listing glitches
                 seen_in_session: set[str] = set()
                 # Prefetch recent known ids to short-circuit checks

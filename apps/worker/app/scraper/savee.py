@@ -591,6 +591,9 @@ class SaveeScraper:
                 scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '20'))
             except Exception:
                 scroll_steps = 20
+            # If unlimited (max_items falsy => scrape all), let the scroller run until idle
+            if not max_items:
+                scroll_steps = 0
             listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
             if not listing_html:
                 return items
@@ -676,6 +679,8 @@ class SaveeScraper:
                     scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '20'))
                 except Exception:
                     scroll_steps = 20
+                if not max_items:
+                    scroll_steps = 0
                 listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
                 if not listing_html:
                     logger.warning(f"No HTML content retrieved from {url}")
