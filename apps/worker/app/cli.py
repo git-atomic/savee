@@ -257,16 +257,18 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                     # Extract profile data from HTML
                     profile_data = _extract_user_profile_data(html_content, username, url)
 
-                    # Upload avatar to R2 if present and not default
+                    # Upload avatar to R2 if present (store even if default avatar)
                     avatar_url = profile_data.get('profile_image_url')
-                    if avatar_url and 'default-avatar' not in avatar_url:
+                    if avatar_url:
                         try:
                             storage = R2Storage()
-                            base_key = f"users/{username}/avatar"
+                            # Store as [username]/avatar/...
+                            base_key = f"{username}/avatar"
                             async with storage:
                                 uploaded_key = await storage.upload_image(avatar_url, base_key)
-                            # Persist R2 key into profile metadata
-                            profile_data['profile_image_r2_key'] = uploaded_key
+                            if uploaded_key:
+                                # Persist R2 key into profile metadata
+                                profile_data['profile_image_r2_key'] = uploaded_key
                         except Exception as avatar_err:
                             logger.warning(f"Avatar upload failed for {username}: {avatar_err}")
                     
