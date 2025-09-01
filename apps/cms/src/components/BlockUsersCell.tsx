@@ -13,21 +13,26 @@ export default function BlockUsersCell({ rowData }: Props) {
   );
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
     async function run() {
       try {
         if (!blockId) return;
         const res = await fetch(`/api/blocks/${blockId}/users`, {
           credentials: "include",
+          signal: controller.signal,
         });
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setUsers(Array.isArray(data?.users) ? data.users : []);
-      } catch {}
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+      }
     }
     run();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [blockId]);
 

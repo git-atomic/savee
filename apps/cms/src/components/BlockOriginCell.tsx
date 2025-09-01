@@ -20,6 +20,7 @@ export default function BlockOriginCell({ rowData }: Props) {
   const [text, setText] = useState<string>("");
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
     async function run() {
       try {
@@ -27,9 +28,9 @@ export default function BlockOriginCell({ rowData }: Props) {
           setText("");
           return;
         }
-        const res = await fetch(`/api/sources/${sourceId}`, {
-          credentials: "include",
-        });
+        const res = await fetch(`/api/sources/${sourceId}`,
+          { credentials: "include", signal: controller.signal }
+        );
         if (!res.ok) {
           setText("");
           return;
@@ -39,13 +40,16 @@ export default function BlockOriginCell({ rowData }: Props) {
         const username = data?.doc?.username || data?.username;
         const value = srcType === "user" ? username || "user" : srcType || "";
         if (!cancelled) setText(value);
-      } catch {
+      } catch (err: any) {
+        // Ignore abort errors triggered by list re-renders / filter changes
+        if (err?.name === "AbortError") return;
         if (!cancelled) setText("");
       }
     }
     run();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [sourceId]);
 
