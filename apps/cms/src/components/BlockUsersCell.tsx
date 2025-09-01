@@ -32,7 +32,8 @@ export default function BlockUsersCell({ rowData }: Props) {
     run();
     return () => {
       cancelled = true;
-      controller.abort();
+      // Avoid explicit abort to prevent AbortError in dev double effects
+      // controller.abort();
     };
   }, [blockId]);
 

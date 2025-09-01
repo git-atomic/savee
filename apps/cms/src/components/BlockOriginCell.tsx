@@ -49,7 +49,8 @@ export default function BlockOriginCell({ rowData }: Props) {
     run();
     return () => {
       cancelled = true;
-      controller.abort();
+      // Do not abort explicitly to avoid React double-invoke AbortError noise
+      // controller.abort();
     };
   }, [sourceId]);
 

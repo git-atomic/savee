@@ -11,8 +11,11 @@ export async function GET(request: NextRequest) {
     const { getR2Client } = await import("../../../lib/r2");
     const client = await getR2Client();
     const presigned = await client.getPresigned(key);
-    // Redirect the browser <img> directly to the presigned URL (or public path)
-    return NextResponse.redirect(presigned, { status: 302 });
+    // If client returned a full URL, redirect. If it returned a key again, send JSON
+    if (typeof presigned === 'string' && presigned.startsWith('http')) {
+      return NextResponse.redirect(presigned, { status: 302 });
+    }
+    return NextResponse.json({ url: presigned });
   } catch (e) {
     return NextResponse.json({ error: "Presign failed" }, { status: 500 });
   }
