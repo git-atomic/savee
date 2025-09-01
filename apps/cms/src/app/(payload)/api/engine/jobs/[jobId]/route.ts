@@ -91,7 +91,7 @@ export async function DELETE(
     // Delete from R2 if requested
     if (deleteFromR2) {
       try {
-        // Get all R2 keys for this source to delete from R2
+        // 1) Collect all block media keys
         const blocksToDelete = await db.query(
           "SELECT r2_key FROM blocks WHERE source_id = $1 AND r2_key IS NOT NULL",
           [sourceId]
@@ -134,6 +134,67 @@ export async function DELETE(
             console.log(`Successfully deleted ${r2Keys.length} files from R2`);
           } else {
             console.log(`R2 deletion completed with some errors`);
+          }
+        }
+
+        // 2) Also delete user-specific prefixes for this source (avatars and user media)
+        //    Determine username if this is a user source
+        const srcRow = await db.query(
+          `SELECT source_type, username FROM sources WHERE id = $1`,
+          [sourceId]
+        );
+        const sourceType = srcRow.rows?.[0]?.source_type;
+        const username = srcRow.rows?.[0]?.username;
+        const bucket = process.env.R2_BUCKET_NAME as string;
+        if (bucket && username && String(sourceType).toLowerCase() === "user") {
+          try {
+            const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } =
+              await import("@aws-sdk/client-s3");
+            const s3 = new S3Client({
+              region: "auto",
+              endpoint: process.env.R2_ENDPOINT_URL,
+              credentials: {
+                accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+                secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+              },
+            });
+
+            // Delete under unified and legacy layouts
+            const prefixes = [
+              `savee/users/${username}/avatar/`,
+              `savee/users/${username}/blocks/`,
+              // legacy fallbacks
+              `${username}/avatar/`,
+              `users/${username}/`,
+            ];
+
+            for (const prefix of prefixes) {
+              let continuationToken: string | undefined = undefined;
+              do {
+                const listResp = await s3.send(
+                  new ListObjectsV2Command({
+                    Bucket: bucket,
+                    Prefix: prefix,
+                    ContinuationToken: continuationToken,
+                  })
+                );
+                const contents = listResp.Contents || [];
+                if (contents.length === 0) break;
+                const del = new DeleteObjectsCommand({
+                  Bucket: bucket,
+                  Delete: {
+                    Objects: contents.map((o) => ({ Key: o.Key! })),
+                    Quiet: true,
+                  },
+                });
+                await s3.send(del);
+                continuationToken = listResp.IsTruncated
+                  ? listResp.NextContinuationToken
+                  : undefined;
+              } while (continuationToken);
+            }
+          } catch (e) {
+            console.warn(`Prefix delete failed for user ${username}:`, e);
           }
         }
       } catch (r2Error) {

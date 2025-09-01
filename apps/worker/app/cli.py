@@ -201,26 +201,27 @@ async def _send_simple_log_to_cms(run_id: int, log_data: dict):
         pass  # Fail silently if CMS is unavailable
 
 def _generate_r2_key(url: str, external_id: str) -> str:
-    """Generate organized R2 key based on source type and URL"""
+    """Generate organized R2 key based on source type and URL
+
+    Unified layout:
+      - savee/home/blocks/<external_id>
+      - savee/pop/blocks/<external_id>
+      - savee/users/<username>/blocks/<external_id>
+    """
     source_type = _detect_source_type(url)
     
     if source_type == SourceTypeEnum.home:
-        # Home page content: home/[external_id]
-        return f"home/{external_id}"
+        return f"savee/home/blocks/{external_id}"
     elif source_type == SourceTypeEnum.pop:
-        # Popular/trending content: pop/[external_id]
-        return f"pop/{external_id}"
+        return f"savee/pop/blocks/{external_id}"
     elif source_type == SourceTypeEnum.user:
-        # User content: users/[username]/[external_id]
         username = _extract_username(url)
         if username:
-            return f"users/{username}/{external_id}"
+            return f"savee/users/{username}/blocks/{external_id}"
         else:
-            # Fallback if username extraction fails
-            return f"users/unknown/{external_id}"
+            return f"savee/users/unknown/blocks/{external_id}"
     else:
-        # Fallback for any other case
-        return f"misc/{external_id}"
+        return f"savee/misc/blocks/{external_id}"
 
 async def _create_or_update_savee_user(session: AsyncSession, username: str, url: str) -> int:
     """Create or update SaveeUser profile with scraped data"""
@@ -262,8 +263,8 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                     if avatar_url:
                         try:
                             storage = R2Storage()
-                            # Store as [username]/avatar/...
-                            base_key = f"{username}/avatar"
+                            # Store as savee/users/<username>/avatar/...
+                            base_key = f"savee/users/{username}/avatar"
                             async with storage:
                                 uploaded_key = await storage.upload_image(avatar_url, base_key)
                             if uploaded_key:
