@@ -718,10 +718,10 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                 # Early-exit when only-old items encountered consecutively
                 consecutive_old_items = 0
                 try:
-                    # Stop quickly when seeing only old items; lower default so we don't re-scan full feed
-                    only_old_exit_streak = int(os.getenv('ONLY_OLD_EXIT_STREAK', '8'))
+                    # Require many consecutive old items before early-exit
+                    only_old_exit_streak = int(os.getenv('ONLY_OLD_EXIT_STREAK', '50'))
                 except Exception:
-                    only_old_exit_streak = 8
+                    only_old_exit_streak = 50
                 # Track unique external IDs seen in this run session to avoid counting duplicates from listing glitches
                 seen_in_session: set[str] = set()
                 # Prefetch recent known ids to short-circuit checks

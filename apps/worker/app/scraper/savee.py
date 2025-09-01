@@ -588,9 +588,9 @@ class SaveeScraper:
 
             # Allow environment to control shallow/fast listings
             try:
-                scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '3'))
+                scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '20'))
             except Exception:
-                scroll_steps = 3
+                scroll_steps = 20
             listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
             if not listing_html:
                 return items
@@ -673,9 +673,9 @@ class SaveeScraper:
 
                 logger.info(f"Starting real-time scraping: {url}")
                 try:
-                    scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '3'))
+                    scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '20'))
                 except Exception:
-                    scroll_steps = 3
+                    scroll_steps = 20
                 listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
                 if not listing_html:
                     logger.warning(f"No HTML content retrieved from {url}")
