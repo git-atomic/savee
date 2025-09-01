@@ -95,16 +95,7 @@ export const Blocks: CollectionConfig = {
         position: "sidebar",
       },
     },
-    // Quick filter by username via where parameter support in admin list
-    {
-      name: "_usernameFilter",
-      type: "text",
-      admin: {
-        position: "sidebar",
-        description: "Filter by username (exact match)",
-        condition: () => false,
-      },
-    },
+    
 
     // Content Info
     {

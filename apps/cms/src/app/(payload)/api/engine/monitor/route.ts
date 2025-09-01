@@ -38,9 +38,9 @@ async function startWorkerProcess(
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
-        // Make monitor sweeps shallow and fast by default
-        ONLY_OLD_EXIT_STREAK: process.env.ONLY_OLD_EXIT_STREAK || "2",
-        LISTING_SCROLL_STEPS: process.env.LISTING_SCROLL_STEPS || "1",
+        // For monitor sweeps, default to deeper scroll to avoid early stop
+        ONLY_OLD_EXIT_STREAK: process.env.ONLY_OLD_EXIT_STREAK || "12",
+        LISTING_SCROLL_STEPS: process.env.LISTING_SCROLL_STEPS || "6",
       },
       detached: false,
     }
