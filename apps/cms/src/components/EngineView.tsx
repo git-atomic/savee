@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { parseSaveeUrl } from "@/lib/url-utils";
 
 // Types
 interface JobData {
@@ -59,22 +60,8 @@ export default function EngineView() {
   // Auto-detect source type from URL
   useEffect(() => {
     if (!url) return;
-
-    const urlLower = url.toLowerCase().trim();
-    if (
-      urlLower.includes("savee.it/pop") ||
-      urlLower.includes("savee.it/popular")
-    ) {
-      setSourceType("pop");
-    } else if (
-      urlLower === "https://savee.it" ||
-      urlLower === "savee.it" ||
-      urlLower === "https://savee.it/"
-    ) {
-      setSourceType("home");
-    } else if (urlLower.includes("savee.it/")) {
-      setSourceType("user");
-    }
+    const parsed = parseSaveeUrl(url);
+    if (parsed.isValid) setSourceType(parsed.sourceType);
   }, [url]);
 
   // Fetch jobs data

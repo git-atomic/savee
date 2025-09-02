@@ -586,12 +586,7 @@ class SaveeScraper:
                 base_url0 = f"{sp0.scheme}://{sp0.netloc}"
                 await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
 
-            # Allow environment to control shallow/fast listings
-            try:
-                scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '3'))
-            except Exception:
-                scroll_steps = 3
-            listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
+            listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=3, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
             if not listing_html:
                 return items
 
@@ -672,11 +667,7 @@ class SaveeScraper:
                     await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
 
                 logger.info(f"Starting real-time scraping: {url}")
-                try:
-                    scroll_steps = int(os.getenv('LISTING_SCROLL_STEPS', '3'))
-                except Exception:
-                    scroll_steps = 3
-                listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=scroll_steps, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
+                listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=3, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
                 if not listing_html:
                     logger.warning(f"No HTML content retrieved from {url}")
                     return

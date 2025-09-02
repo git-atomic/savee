@@ -36,12 +36,7 @@ async function startWorkerProcess(
     {
       cwd: workerPath,
       stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        // Make monitor sweeps shallow and fast by default
-        ONLY_OLD_EXIT_STREAK: process.env.ONLY_OLD_EXIT_STREAK || "2",
-        LISTING_SCROLL_STEPS: process.env.LISTING_SCROLL_STEPS || "1",
-      },
+      env: { ...process.env },
       detached: false,
     }
   );
@@ -138,7 +133,7 @@ export async function POST(request: NextRequest) {
 
       // Skip if currently running/paused
       const activeRun = await db.query(
-        `SELECT id FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending')
+        `SELECT id FROM runs WHERE source_id = $1 AND LOWER(status) IN ('running','paused','pending')
          ORDER BY created_at DESC LIMIT 1`,
         [sourceId]
       );
@@ -220,7 +215,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
       try {
-        // Always insert a fresh run to avoid counter mixing across runs
+        // Always create a fresh run per sweep to avoid counter reuse/mutations
         const runIns = await db.query(
           `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
@@ -229,7 +224,7 @@ export async function POST(request: NextRequest) {
             backfill || bodyBackfill ? "backfill" : "scheduled",
             maxItems,
             "running",
-            JSON.stringify({ found: 0, uploaded: 0, errors: 0, skipped: 0 }),
+            JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
             new Date(),
           ]
         );

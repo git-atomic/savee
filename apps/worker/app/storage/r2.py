@@ -100,8 +100,8 @@ class R2Storage:
         #     logger.debug(f"File already exists: {key}")
         #     return key
             
-        # Retry upload with exponential backoff for time skew issues
-        max_retries = 3
+        # Retry upload with exponential backoff for transient/clock-skew issues
+        max_retries = 6
         for attempt in range(max_retries):
             try:
                 await self.client.put_object(
@@ -118,8 +118,14 @@ class R2Storage:
             except ClientError as e:
                 error_code = e.response['Error']['Code']
                 if error_code == 'RequestTimeTooSkewed' and attempt < max_retries - 1:
-                    # Wait and retry for time skew issues
-                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    # Recreate client to let botocore recalc time offset, then wait and retry
+                    try:
+                        logger.warning("Time skew detected; refreshing R2 client and retrying")
+                        await self.close()
+                        await self.connect()
+                    except Exception as refresh_err:
+                        logger.debug(f"Failed to refresh R2 client: {refresh_err}")
+                    wait_time = min(32, 2 ** attempt)  # 1,2,4,8,16,32
                     logger.warning(f"Time skew error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
                     await asyncio.sleep(wait_time)
                     continue
@@ -211,10 +217,38 @@ class R2Storage:
                 # Upload thumbnail
                 thumb_key = f"{base_key}/{size_name}_{content_hash}.jpg"
                 await self.upload_file(thumb_data, thumb_key, 'image/jpeg')
-                
         except Exception as e:
             logger.error(f"Failed to generate thumbnails: {e}")
             # Don't raise - thumbnails are optional
+
+    async def upload_avatar(self, username: str, avatar_url: str) -> str:
+        """Download and upload a user avatar to R2 under {username}/avatar/...
+        Returns the original avatar key.
+        """
+        try:
+            image_data = await self.download_url(avatar_url)
+            content_hash = hashlib.sha256(image_data).hexdigest()[:16]
+            # Avatars are normalized to JPEG for consistency
+            base_key = f"{username}/avatar"
+            original_key = f"{base_key}/original_{content_hash}.jpg"
+            await self.upload_file(image_data, original_key, 'image/jpeg')
+            # Generate avatar sizes (small set)
+            try:
+                image = Image.open(BytesIO(image_data))
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    image = image.convert('RGB')
+                for size_name, sz in [('small', 64), ('medium', 128), ('large', 256)]:
+                    thumb = image.copy()
+                    thumb.thumbnail((sz, sz), Image.Resampling.LANCZOS)
+                    buf = BytesIO()
+                    thumb.save(buf, format='JPEG', quality=85, optimize=True)
+                    await self.upload_file(buf.getvalue(), f"{base_key}/{size_name}_{content_hash}.jpg", 'image/jpeg')
+            except Exception as e:
+                logger.debug(f"Avatar thumbnail generation failed: {e}")
+            return original_key
+        except Exception as e:
+            logger.error(f"Failed to upload avatar for {username}: {e}")
+            raise
             
     def _get_file_extension(self, url: str) -> str:
         """Get file extension from URL"""

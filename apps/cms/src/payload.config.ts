@@ -14,6 +14,11 @@ import { SaveeUsers } from "./collections/SaveeUsers";
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
 
+const corsOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export default buildConfig({
   // Admin Configuration
   admin: {
@@ -54,7 +59,8 @@ export default buildConfig({
   // Database - Clean Production Setup
   db: postgresAdapter({
     pool: {
-      connectionString: process.env.DATABASE_URI || "",
+      connectionString:
+        process.env.DATABASE_URL || process.env.DATABASE_URI || "",
     },
     migrationDir: "./src/migrations",
     // Prevent Payload from managing external tables
@@ -67,11 +73,8 @@ export default buildConfig({
   // No additional plugins needed
   plugins: [],
 
-  // CORS settings for production
-  cors: [
-    "http://localhost:3000",
-    "https://your-domain.com", // Replace with actual domain
-  ],
+  // CORS settings (env-driven to support multiple frontends/subdomains)
+  cors: corsOrigins,
 
   // Disable features not needed
   localization: false,

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create or find source
+    // Create or find source by URL. If same URL exists but with missing username, update it.
     const sources = await payload.find({
       collection: "sources",
       where: {
@@ -75,8 +75,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Try to reuse the latest completed/error run for this source to avoid duplicates
+    // Guard: if there's already an active run, do not start another
     const pool: any = (payload.db as any).pool;
+    const existingActive = await pool.query(
+      `SELECT id FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending') ORDER BY created_at DESC LIMIT 1`,
+      [sourceId]
+    );
+    if (existingActive.rows.length > 0) {
+      return NextResponse.json(
+        { success: false, error: "Run already active for this source" },
+        { status: 409 }
+      );
+    }
+
+    // Try to reuse the latest completed/error run for this source to avoid duplicates
     const reuse = await pool.query(
       `SELECT id FROM runs WHERE source_id = $1 AND status IN ('completed','error')
        ORDER BY created_at DESC LIMIT 1`,

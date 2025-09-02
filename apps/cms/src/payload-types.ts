@@ -175,9 +175,6 @@ export interface Source {
  */
 export interface Run {
   id: number;
-  /**
-   * Filter by source in the list view
-   */
   source: number | Source;
   kind: 'manual' | 'scheduled';
   /**
@@ -342,10 +339,6 @@ export interface SaveeUser {
    * URL to profile avatar image
    */
   profile_image_url?: string | null;
-  /**
-   * R2 key of uploaded profile avatar
-   */
-  profile_image_r2_key?: string | null;
   /**
    * URL to profile cover/banner image
    */
@@ -571,7 +564,6 @@ export interface SaveeUsersSelect<T extends boolean = true> {
   display_name?: T;
   bio?: T;
   profile_image_url?: T;
-  profile_image_r2_key?: T;
   cover_image_url?: T;
   profile_url?: T;
   follower_count?: T;

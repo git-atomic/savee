@@ -27,16 +27,16 @@ export const SaveeUsers: CollectionConfig = {
     delete: () => true,
   },
   fields: [
-    // Avatar preview (virtual)
+    // Avatar preview (UI only)
     {
       name: "avatar",
       type: "ui",
       admin: {
         components: {
-          // Use a string path component to avoid JSX-in-config parse issues
           Cell: "@/components/SaveeUserAvatarCell",
         },
       },
+      label: "Avatar",
     },
     // Basic profile info
     {
@@ -67,13 +67,6 @@ export const SaveeUsers: CollectionConfig = {
       type: "text",
       admin: {
         description: "URL to profile avatar image",
-      },
-    },
-    {
-      name: "profile_image_r2_key",
-      type: "text",
-      admin: {
-        description: "R2 key of uploaded profile avatar",
       },
     },
     {

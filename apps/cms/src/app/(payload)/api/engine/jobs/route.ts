@@ -10,6 +10,7 @@ interface JobData {
   username?: string;
   maxItems: number;
   status: "active" | "running" | "paused" | "error" | "completed";
+  runStatus?: string;
   counters: {
     found: number;
     uploaded: number;
@@ -19,6 +20,7 @@ interface JobData {
   lastRun?: string;
   nextRun?: string;
   error?: string;
+  origin?: string;
 }
 
 export async function GET() {
@@ -79,49 +81,31 @@ export async function GET() {
                         | "error"
                         | "completed"),
           runStatus: latestRun?.status as string, // Add separate run status for pause badge
-          counters: (() => {
-            // Show the exact counters from the latest run without modification
-            const raw =
-              typeof latestRun?.counters === "string"
-                ? JSON.parse(latestRun.counters)
-                : latestRun?.counters || {
-                    found: 0,
-                    uploaded: 0,
-                    errors: 0,
-                    skipped: 0,
-                  };
-            return {
-              found: Number(raw.found || 0),
-              uploaded: Number(raw.uploaded || 0),
-              errors: Number(raw.errors || 0),
-              skipped: Number(raw.skipped || 0),
-            };
-          })(),
+          counters:
+            typeof latestRun?.counters === "string"
+              ? (JSON.parse(latestRun.counters) as {
+                  found: number;
+                  uploaded: number;
+                  errors: number;
+                })
+              : (latestRun?.counters as {
+                  found: number;
+                  uploaded: number;
+                  errors: number;
+                }) || { found: 0, uploaded: 0, errors: 0 },
           lastRun: latestRun?.completedAt || latestRun?.startedAt || undefined,
           nextRun: (() => {
             const minIntervalSec = parseInt(
               process.env.MONITOR_MIN_INTERVAL_SECONDS || "60",
               10
             );
-            const maxIntervalSec = parseInt(
-              process.env.MONITOR_MAX_INTERVAL_SECONDS || "900",
-              10
-            );
-            const completed = latestRun?.completedAt
+            const completedAtMs = latestRun?.completedAt
               ? new Date(latestRun.completedAt).getTime()
               : undefined;
-            if (!completed) return undefined;
-            // Backoff using recent runs
-            const now = Date.now();
-            const base = completed + minIntervalSec * 1000;
-            const next = new Date(
-              Math.min(
-                base + 0,
-                now + minIntervalSec * 1000,
-                completed + maxIntervalSec * 1000
-              )
-            );
-            return next.toISOString();
+            if (!completedAtMs) return undefined;
+            const base = completedAtMs + minIntervalSec * 1000;
+            const nextMs = Math.max(base, Date.now());
+            return new Date(nextMs).toISOString();
           })(),
           error: latestRun?.errorMessage || undefined,
         };

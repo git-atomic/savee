@@ -92,7 +92,6 @@ export const Blocks: CollectionConfig = {
       label: "Savee User",
       admin: {
         description: "SaveeUser profile for user content organization",
-        position: "sidebar",
       },
     },
 

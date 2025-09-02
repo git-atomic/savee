@@ -39,8 +39,11 @@ export default function RunStateCell({ rowData }: Props) {
     };
   }, [sourceId]);
 
-  // Prefer run row's status if it's explicitly "running"
-  const effective = (rowData?.status === "running" ? "running" : state) || "";
+  // Prefer run row's status when it is explicit (running/paused/error)
+  const runStatus = (rowData?.status || "").toString().toLowerCase();
+  const effective =
+    (["running", "paused", "error"].includes(runStatus) ? runStatus : state) ||
+    "";
 
   const style: React.CSSProperties = (() => {
     const base: React.CSSProperties = {

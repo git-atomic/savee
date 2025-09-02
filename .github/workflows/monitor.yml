@@ -1,0 +1,50 @@
+name: Engine Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # every 5 minutes
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Run monitor with ?backfill=true"
+        type: boolean
+        default: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: monitor-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Call /api/engine/monitor
+        env:
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
+          BACKFILL: ${{ github.event.inputs.backfill }}
+        run: |
+          if [ -z "$MONITOR_URL" ]; then
+            echo "MONITOR_URL secret is missing"; exit 1; fi
+          URL="$MONITOR_URL"
+          if [ "$BACKFILL" = "true" ]; then
+            if echo "$URL" | grep -q "?"; then URL="$URL&backfill=true"; else URL="$URL?backfill=true"; fi
+          fi
+          echo "POST $URL"
+          http_code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" -X POST "$URL")
+          echo "Response ($http_code):" && cat /tmp/resp.json || true
+          if [ "$http_code" -ge 300 ]; then
+            echo "Monitor returned HTTP $http_code"; exit 1; fi
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            msg=":rotating_light: Monitor failed for $GITHUB_REPOSITORY@$GITHUB_REF — run $GITHUB_RUN_ID"
+            payload=$(printf '{"text":"%s"}' "$msg")
+            curl -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL" || true
+          else
+            echo "SLACK_WEBHOOK_URL not set; skipping Slack notification"
+          fi

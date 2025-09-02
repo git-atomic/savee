@@ -42,11 +42,6 @@ export const Runs: CollectionConfig = {
       relationTo: "sources",
       required: true,
       label: "Source",
-      admin: {
-        allowCreate: false,
-        position: "sidebar",
-        description: "Filter by source in the list view",
-      },
     },
 
     // Execution Configuration (per-run)

@@ -14,7 +14,7 @@ if sys.platform.startswith('win'):
     if hasattr(sys.stderr, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-from sqlalchemy import select, update, or_, text
+from sqlalchemy import select, update, or_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.sql import func
@@ -31,8 +31,24 @@ from app.scraper.savee import SaveeScraper
 from app.storage.r2 import R2Storage
 import re
 from datetime import timezone
+import json
 
 logger = setup_logging(__name__)
+
+
+def _load_savee_auth_token() -> Optional[str]:
+    """Load auth_token from savee_cookies.json if available."""
+    try:
+        base_dir = os.path.dirname(__file__)
+        cookies_path = os.path.abspath(os.path.join(base_dir, '..', 'savee_cookies.json'))
+        with open(cookies_path, 'r', encoding='utf-8') as f:
+            cookies = json.load(f)
+        for c in cookies:
+            if c.get('name') == 'auth_token' and c.get('value'):
+                return c['value']
+    except Exception as e:
+        logger.debug(f"Auth cookie not loaded: {e}")
+    return None
 
 
 async def _check_if_paused(session: AsyncSession, source_id: int) -> bool:
@@ -66,6 +82,11 @@ async def _handle_graceful_pause(session: AsyncSession, run_id: int):
 async def _wait_for_resume(session: AsyncSession, source_id: int, run_id: int):
     """Wait for the job to be resumed by polling the database status."""
     print("⏳ Waiting for resume command...")
+    # Ensure session is usable after long waits
+    try:
+        await session.rollback()
+    except Exception:
+        pass
     while True:
         try:
             result = await session.execute(
@@ -127,46 +148,6 @@ async def _item_exists_globally(session: AsyncSession, external_id: str) -> bool
         return False
 
 
-async def _load_known_external_ids(
-    session: AsyncSession,
-    source_id: int,
-    source_limit: int = 1000,
-    global_limit: int = 0,
-) -> tuple[set[str], set[str]]:
-    """Prefetch recent known external_ids for fast skip checks.
-
-    Returns (known_source_ids, known_global_ids)
-    """
-    from sqlalchemy import desc
-
-    known_source: set[str] = set()
-    known_global: set[str] = set()
-    try:
-        if source_limit > 0:
-            rows = await session.execute(
-                select(Block.external_id)
-                .where(Block.source_id == source_id)
-                .order_by(desc(Block.id))
-                .limit(source_limit)
-            )
-            known_source = set([r[0] for r in rows.fetchall() if r and r[0]])
-    except Exception as e:
-        logger.error(f"Failed to load known source ids: {e}")
-
-    try:
-        if global_limit > 0:
-            rows = await session.execute(
-                select(Block.external_id)
-                .order_by(desc(Block.id))
-                .limit(global_limit)
-            )
-            known_global = set([r[0] for r in rows.fetchall() if r and r[0]])
-    except Exception as e:
-        logger.error(f"Failed to load known global ids: {e}")
-
-    return known_source, known_global
-
-
 def _detect_source_type(url: str) -> SourceTypeEnum:
     """Detect source type from URL."""
     if not url:
@@ -201,45 +182,30 @@ async def _send_simple_log_to_cms(run_id: int, log_data: dict):
         pass  # Fail silently if CMS is unavailable
 
 def _generate_r2_key(url: str, external_id: str) -> str:
-    """Generate organized R2 key based on source type and URL"""
+    """Generate organized R2 key for blocks based on source type and URL.
+    Blocks must be stored under:
+      - user:    {username}/blocks/{external_id}
+      - home:    home/blocks/{external_id}
+      - pop:     pop/blocks/{external_id}
+    """
     source_type = _detect_source_type(url)
-    
+
     if source_type == SourceTypeEnum.home:
-        # Home page content: home/[external_id]
-        return f"home/{external_id}"
+        return f"home/blocks/{external_id}"
     elif source_type == SourceTypeEnum.pop:
-        # Popular/trending content: pop/[external_id]
-        return f"pop/{external_id}"
+        return f"pop/blocks/{external_id}"
     elif source_type == SourceTypeEnum.user:
-        # User content: users/[username]/[external_id]
         username = _extract_username(url)
         if username:
-            return f"users/{username}/{external_id}"
-        else:
-            # Fallback if username extraction fails
-            return f"users/unknown/{external_id}"
-    else:
-        # Fallback for any other case
-        return f"misc/{external_id}"
+            return f"{username}/blocks/{external_id}"
+        return f"unknown/blocks/{external_id}"
+    return f"misc/blocks/{external_id}"
 
 async def _create_or_update_savee_user(session: AsyncSession, username: str, url: str) -> int:
     """Create or update SaveeUser profile with scraped data"""
     from sqlalchemy import select
     from datetime import datetime, timezone
     import re
-    import asyncio
-
-    # Ensure schema is up-to-date (add new columns if missing)
-    try:
-        await session.execute(
-            text(
-                "ALTER TABLE savee_users ADD COLUMN IF NOT EXISTS profile_image_r2_key VARCHAR(500)"
-            )
-        )
-        await session.commit()
-    except Exception:
-        # Non-fatal; continue
-        await session.rollback()
     
     # Check if user already exists
     result = await session.execute(
@@ -249,7 +215,13 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
     
     # Scrape user profile data
     try:
-        async with aiohttp.ClientSession() as scrape_session:
+        # Attach auth cookie if available to ensure we can fetch avatar for private or cached content
+        auth_token = _load_savee_auth_token()
+        headers = {}
+        cookies = {}
+        if auth_token:
+            cookies = {"auth_token": auth_token}
+        async with aiohttp.ClientSession(cookies=cookies, headers=headers) as scrape_session:
             async with scrape_session.get(url) as response:
                 if response.status == 200:
                     html_content = await response.text()
@@ -257,18 +229,17 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                     # Extract profile data from HTML
                     profile_data = _extract_user_profile_data(html_content, username, url)
 
-                    # Upload avatar to R2 if present and not default
-                    avatar_url = profile_data.get('profile_image_url')
-                    if avatar_url and 'default-avatar' not in avatar_url:
-                        try:
-                            storage = R2Storage()
-                            base_key = f"users/{username}/avatar"
-                            async with storage:
-                                uploaded_key = await storage.upload_image(avatar_url, base_key)
-                            # Persist R2 key into profile metadata
-                            profile_data['profile_image_r2_key'] = uploaded_key
-                        except Exception as avatar_err:
-                            logger.warning(f"Avatar upload failed for {username}: {avatar_err}")
+                    # Attempt avatar upload to R2 when image available
+                    try:
+                        avatar_url = profile_data.get('profile_image_url')
+                        if avatar_url:
+                            from app.storage.r2 import get_storage
+                            storage = await get_storage()
+                            _ = await storage.upload_avatar(username, avatar_url)
+                            # Also ensure profile_image_url is stored for CMS preview
+                            profile_data['profile_image_url'] = avatar_url
+                    except Exception as _avatar_err:
+                        logger.debug(f"Avatar upload skipped for {username}: {_avatar_err}")
                     
                     if existing_user:
                         # Update existing user with new profile data
@@ -322,6 +293,28 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
     }
     
     try:
+        # Helper to parse counts like "12,187", "12 187", "12.1k", "1.2M"
+        def parse_count_string(raw: str) -> Optional[int]:
+            try:
+                s = raw.strip().lower()
+                # Normalize unicode spaces
+                s = re.sub(r"[\u00A0\u202F]", " ", s)
+                # Extract number with optional suffix
+                m = re.match(r"([\d.,\s]+)\s*([km]?)", s)
+                if not m:
+                    digits = re.sub(r"[^\d]", "", s)
+                    return int(digits) if digits else None
+                num_str, suffix = m.groups()
+                # Remove spaces and thousand separators, keep decimal point
+                num_str = num_str.replace(" ", "").replace(",", "")
+                val = float(num_str)
+                if suffix == "k":
+                    val *= 1000
+                elif suffix == "m":
+                    val *= 1000000
+                return int(round(val))
+            except Exception:
+                return None
         # Try to extract display name from title or meta tags
         display_name_match = re.search(r'<title>([^<]+)', html_content, re.IGNORECASE)
         if display_name_match:
@@ -330,10 +323,60 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
             if " - Savee" in title:
                 profile_data['display_name'] = title.replace(" - Savee", "").strip()
         
-        # Extract profile image URL
-        profile_img_match = re.search(r'<meta property="og:image" content="([^"]+)"', html_content)
-        if profile_img_match:
-            profile_data['profile_image_url'] = profile_img_match.group(1)
+        # Extract profile image URL with strong preference for real avatars CDN
+        avatar_cdn = re.search(r'https?://[^"\']*savee-cdn\.com/avatars/[^"\']+', html_content, re.IGNORECASE)
+        if avatar_cdn:
+            profile_data['profile_image_url'] = avatar_cdn.group(0)
+        else:
+            # Try avatar container block (allow default avatars)
+            container_img = re.search(
+                r'z-index-user-header-avatar[\s\S]*?<img[^>]+src=["\']([^"\']+)["\']',
+                html_content,
+                re.IGNORECASE
+            )
+            if container_img:
+                profile_data['profile_image_url'] = container_img.group(1)
+            else:
+                # Try og:image (allow defaults)
+                profile_img_match = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html_content, re.IGNORECASE)
+                if profile_img_match:
+                    profile_data['profile_image_url'] = profile_img_match.group(1)
+                else:
+                    # Fallback: any bg-image-loading img (allow defaults)
+                    any_img = re.search(
+                        r'<img[^>]+class=["\'][^"\']*bg-image-loading[^"\']*["\'][^>]+src=["\']([^"\']+)["\']',
+                        html_content,
+                        re.IGNORECASE
+                    )
+                    if any_img:
+                        profile_data['profile_image_url'] = any_img.group(1)
+
+        # Prefer DOM counters in the header toolbar (title="2,133 Saves", etc.)
+        # These appear accurate and should override JSON when present
+        # Saves
+        dom_saves = re.search(r'title=["\']([\d][\d,\.\s\u00A0\u202F]*)\s*Saves["\']', html_content, re.IGNORECASE)
+        if dom_saves:
+            parsed = parse_count_string(dom_saves.group(1))
+            if parsed is not None:
+                profile_data['saves_count'] = parsed
+        # Boards -> collections_count
+        dom_boards = re.search(r'title=["\']([\d][\d,\.\s\u00A0\u202F]*)\s*Boards["\']', html_content, re.IGNORECASE)
+        if dom_boards:
+            parsed = parse_count_string(dom_boards.group(1))
+            if parsed is not None:
+                profile_data['collections_count'] = parsed
+        # Following
+        dom_following = re.search(r'title=["\']([\d][\d,\.\s\u00A0\u202F]*)\s*Following["\']', html_content, re.IGNORECASE)
+        if dom_following:
+            parsed = parse_count_string(dom_following.group(1))
+            if parsed is not None:
+                profile_data['following_count'] = parsed
+        # Followers
+        dom_followers = re.search(r'title=["\']([\d][\d,\.\s\u00A0\u202F]*)\s*Followers["\']', html_content, re.IGNORECASE)
+        if dom_followers:
+            parsed = parse_count_string(dom_followers.group(1))
+            if parsed is not None:
+                profile_data['follower_count'] = parsed
         
         # Extract bio/description
         description_match = re.search(r'<meta property="og:description" content="([^"]+)"', html_content)
@@ -345,38 +388,103 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
         if json_data_match:
             try:
                 initial_state = json.loads(json_data_match.group(1))
-                # Navigate through the JSON structure to find user stats
-                if 'user' in initial_state:
-                    user_data = initial_state['user']
-                    if 'followers_count' in user_data:
-                        profile_data['follower_count'] = user_data['followers_count']
-                    if 'following_count' in user_data:
-                        profile_data['following_count'] = user_data['following_count']
-                    if 'saves_count' in user_data:
-                        profile_data['saves_count'] = user_data['saves_count']
-                    if 'collections_count' in user_data:
-                        profile_data['collections_count'] = user_data['collections_count']
+
+                def coerce_count(v):
+                    if isinstance(v, (int, float)):
+                        return int(v)
+                    if isinstance(v, str):
+                        parsed = parse_count_string(v)
+                        return parsed if parsed is not None else None
+                    return None
+
+                # Navigate through likely structures to find stats
+                user_nodes = []
+                if isinstance(initial_state, dict):
+                    if 'user' in initial_state and isinstance(initial_state['user'], dict):
+                        user_nodes.append(initial_state['user'])
+                    # Some apps embed under data or profile
+                    for k in ('data', 'profile', 'currentUser', 'viewer'):
+                        node = initial_state.get(k)
+                        if isinstance(node, dict):
+                            if 'user' in node and isinstance(node['user'], dict):
+                                user_nodes.append(node['user'])
+                            else:
+                                user_nodes.append(node)
+
+                def try_fill_counts(src: dict):
+                    nonlocal profile_data
+                    stats_candidates = [src]
+                    for key in ('stats', 'statistics', 'profile', 'meta'):
+                        if isinstance(src.get(key), dict):
+                            stats_candidates.append(src[key])
+                    for cand in stats_candidates:
+                        if not isinstance(cand, dict):
+                            continue
+                        if 'followers_count' in cand and 'follower_count' not in profile_data:
+                            v = coerce_count(cand.get('followers_count'))
+                            if v is not None:
+                                profile_data['follower_count'] = v
+                        if 'following_count' in cand and 'following_count' not in profile_data:
+                            v = coerce_count(cand.get('following_count'))
+                            if v is not None:
+                                profile_data['following_count'] = v
+                        for saves_key in ('saves_count', 'savesCount', 'saves', 'totalSaves', 'num_saves'):
+                            if saves_key in cand and 'saves_count' not in profile_data:
+                                v = coerce_count(cand.get(saves_key))
+                                if v is not None:
+                                    profile_data['saves_count'] = v
+                                    break
+                        for coll_key in ('collections_count', 'collectionsCount', 'collections', 'totalCollections'):
+                            if coll_key in cand and 'collections_count' not in profile_data:
+                                v = coerce_count(cand.get(coll_key))
+                                if v is not None:
+                                    profile_data['collections_count'] = v
+                                    break
+
+                for node in user_nodes:
+                    try_fill_counts(node)
+
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Could not parse user JSON data: {e}")
         
         # Try to extract stats from HTML elements (fallback)
         if 'follower_count' not in profile_data:
-            # Look for follower count patterns in HTML
-            followers_match = re.search(r'(\d+)\s*(?:followers?|Followers?)', html_content, re.IGNORECASE)
+            # Look for follower count patterns in HTML (with separators/suffix)
+            followers_match = re.search(r'([\d][\d,\.\s\u00A0\u202F]*)\s*(?:followers?)', html_content, re.IGNORECASE)
             if followers_match:
-                profile_data['follower_count'] = int(followers_match.group(1))
+                parsed = parse_count_string(followers_match.group(1))
+                if parsed is not None:
+                    profile_data['follower_count'] = parsed
         
         if 'following_count' not in profile_data:
             # Look for following count patterns in HTML
-            following_match = re.search(r'(\d+)\s*(?:following|Following)', html_content, re.IGNORECASE)
+            following_match = re.search(r'([\d][\d,\.\s\u00A0\u202F]*)\s*(?:following)', html_content, re.IGNORECASE)
             if following_match:
-                profile_data['following_count'] = int(following_match.group(1))
+                parsed = parse_count_string(following_match.group(1))
+                if parsed is not None:
+                    profile_data['following_count'] = parsed
         
         if 'saves_count' not in profile_data:
-            # Look for saves count patterns in HTML
-            saves_match = re.search(r'(\d+)\s*(?:saves?|Saves?)', html_content, re.IGNORECASE)
-            if saves_match:
-                profile_data['saves_count'] = int(saves_match.group(1))
+            # Look for saves count in inline JSON first: "saves_count": "12,187" or numbers
+            inline_json_match = re.search(r'"saves[_-]?count"\s*:\s*"?([\d\.,\s\u00A0\u202F]+)"?', html_content, re.IGNORECASE)
+            if inline_json_match:
+                parsed = parse_count_string(inline_json_match.group(1))
+                if parsed is not None:
+                    profile_data['saves_count'] = parsed
+            else:
+                # Fallback to visible text pattern
+                saves_match = re.search(r'([\d][\d,\.\s\u00A0\u202F]*)\s*(?:saves?)', html_content, re.IGNORECASE)
+                if saves_match:
+                    parsed = parse_count_string(saves_match.group(1))
+                    if parsed is not None:
+                        profile_data['saves_count'] = parsed
+
+        if 'collections_count' not in profile_data:
+            collections_match = re.search(r'([\d][\d,\.\s\u00A0\u202F]*)\s*(?:collections?)', html_content, re.IGNORECASE)
+            if collections_match:
+                parsed = parse_count_string(collections_match.group(1))
+                if parsed is not None:
+                    profile_data['collections_count'] = parsed
         
     except Exception as e:
         print(f"Error extracting profile data: {e}")
@@ -414,11 +522,8 @@ async def _upsert_block(
     run_id: int,
     item: Any,
     r2_key: Optional[str] = None,
-) -> Tuple[int, bool]:
-    """Upsert a block with enhanced metadata from the scraper.
-
-    Returns (block_id, is_new)
-    """
+) -> int:
+    """Upsert a block with enhanced metadata from the scraper."""
     # Pre-dedupe by external_id or stable media URLs to avoid duplicates across users/runs
     try:
         dedupe_conditions = [Block.external_id == item.external_id]
@@ -440,7 +545,7 @@ async def _upsert_block(
         existing_q = await session.execute(select(Block.id).where(or_(*dedupe_conditions)))
         existing_block_id = existing_q.scalar_one_or_none()
         if existing_block_id:
-            return int(existing_block_id), False
+            return int(existing_block_id)
 
         # Fuzzy match by canonical Savee CDN asset fingerprint (filename/hash)
         def _asset_fp(u: Optional[str]) -> Optional[str]:
@@ -478,7 +583,7 @@ async def _upsert_block(
             )
             fuzzy_id = fuzzy_q.scalar_one_or_none()
             if fuzzy_id:
-                return int(fuzzy_id), False
+                return int(fuzzy_id)
     except Exception as _dedupe_err:
         logger.error(f"Pre-dedupe check failed: {_dedupe_err}")
     # Extract enhanced data from the scraped item
@@ -505,17 +610,7 @@ async def _upsert_block(
     else:
         media_type = BlockMediaTypeEnum.unknown
     
-    # Check if this external_id already exists (don't update run_id on existing blocks)
-    existing_check = await session.execute(
-        select(Block.id).where(Block.external_id == item.external_id)
-    )
-    existing_block = existing_check.scalar_one_or_none()
-    
-    if existing_block:
-        # Block already exists - just return it without changing run_id
-        return int(existing_block), False
-    
-    # Create new block only if it doesn't exist
+    # Create the upsert statement with comprehensive metadata
     stmt = insert(Block).values(
         source_id=source_id,
         run_id=run_id,
@@ -548,15 +643,38 @@ async def _upsert_block(
         links=getattr(item, 'links', []),
     )
     
+    # On conflict, update fields 
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['external_id'],
+        set_={
+            'title': stmt.excluded.title,
+            'description': stmt.excluded.description,
+            'status': stmt.excluded.status,
+            'r2_key': stmt.excluded.r2_key,
+            'og_title': stmt.excluded.og_title,
+            'og_description': stmt.excluded.og_description,
+            'og_image_url': stmt.excluded.og_image_url,
+            'og_url': stmt.excluded.og_url,
+            'source_api_url': stmt.excluded.source_api_url,
+            'saved_at': stmt.excluded.saved_at,
+            'color_hexes': stmt.excluded.color_hexes,
+            'ai_tags': stmt.excluded.ai_tags,
+            'colors': stmt.excluded.colors,
+            'links': stmt.excluded.links,
+            'metadata': stmt.excluded.metadata,
+            'updated_at': func.now(),
+        }
+    )
+    
     result = await session.execute(stmt)
     
-    # Get the new block ID
-    new_block = await session.execute(
+    # Get the block ID (either newly inserted or updated)
+    block_result = await session.execute(
         select(Block.id).where(Block.external_id == item.external_id)
     )
-    block_id = new_block.scalar_one()
+    block_id = block_result.scalar_one()
     
-    return int(block_id), True
+    return block_id
 
 
 async def create_or_get_source(session: AsyncSession, url: str) -> int:
@@ -693,6 +811,22 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                 else:
                     raise ValueError(f"Could not extract username from {url}")
             
+            # Configure early-exit policy for monitor sweeps
+            stop_on_first_old: bool = False
+            min_new_before_break: int = 1
+            try:
+                # Determine run kind if available (scheduled/backfill/manual)
+                run_kind = run_obj.kind if 'run_obj' in locals() and run_obj is not None else RunKindEnum.manual
+            except Exception:
+                run_kind = RunKindEnum.manual
+            # Enable stop-on-first-old for scheduled (monitor) runs by default
+            try:
+                env_flag = os.getenv('STOP_ON_FIRST_OLD', 'true').strip().lower()
+                stop_on_first_old = (run_kind == RunKindEnum.scheduled) and env_flag in ('1','true','yes')
+                min_new_before_break = int(os.getenv('MIN_NEW_BEFORE_BREAK', '1'))
+            except Exception:
+                pass
+
             async with storage:
                 processed_count = 0
                 skipped_count = 0
@@ -701,23 +835,15 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                 try:
                     # Stop quickly when seeing only old items; lower default so we don't re-scan full feed
                     only_old_exit_streak = int(os.getenv('ONLY_OLD_EXIT_STREAK', '8'))
+                    # Probe at least this many items per sweep before declaring "only old"
+                    probe_min_items = int(os.getenv('PROBE_MIN_ITEMS', '48'))
                 except Exception:
                     only_old_exit_streak = 8
+                    probe_min_items = 48
                 # Track unique external IDs seen in this run session to avoid counting duplicates from listing glitches
                 seen_in_session: set[str] = set()
-                # Prefetch recent known ids to short-circuit checks
-                try:
-                    preload_source_n = int(os.getenv('PRELOAD_SOURCE_KNOWN_N', '500'))
-                    preload_global_n = int(os.getenv('PRELOAD_GLOBAL_KNOWN_N', '0'))
-                except Exception:
-                    preload_source_n, preload_global_n = 500, 0
-                known_source_ids, known_global_ids = await _load_known_external_ids(
-                    session, source_id, preload_source_n, preload_global_n
-                )
                 async for item in item_iterator:
-                    # Count every item from the iterator as "processed"
                     processed_count += 1
-                    counters['found'] = processed_count
                     
                     # Avoid double counting the same item within this session
                     try:
@@ -728,23 +854,12 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                     except Exception:
                         pass
 
-                    # Fast-path skip using preloaded sets
-                    if item.external_id in known_source_ids or item.external_id in known_global_ids:
-                        skipped_count += 1
-                        counters['skipped'] = skipped_count
-                        print(f"[SKIP/KNOWN] {item.external_id} - Preloaded known id (#{skipped_count} skipped)")
-                        await update_run_status(session, run_id, RunStatusEnum.running, counters)
-                        await session.commit()
-                        consecutive_old_items += 1
-                        if consecutive_old_items >= only_old_exit_streak:
-                            print(f"[EARLY-EXIT] Detected {consecutive_old_items} consecutive known items; stopping sweep early.")
-                            break
-                        continue
-
                     # Skip if already processed in this run (for resume functionality)
                     if await _item_already_processed(session, run_id, item.external_id):
                         skipped_count += 1
                         counters['skipped'] = skipped_count
+                        # Keep 'found' aligned with processed_count in real-time
+                        counters['found'] = processed_count
                         print(f"[SKIP] {item.external_id} - Already processed in this run (#{skipped_count} skipped)")
                         # Persist skip counters
                         await update_run_status(session, run_id, RunStatusEnum.running, counters)
@@ -755,13 +870,34 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                     if await _item_exists_globally(session, item.external_id):
                         skipped_count += 1
                         counters['skipped'] = skipped_count
+                        # Keep 'found' aligned with processed_count in real-time
+                        counters['found'] = processed_count
                         print(f"[SKIP] {item.external_id} - Already exists in DB (#{skipped_count} skipped)")
                         # Persist skip counters
                         await update_run_status(session, run_id, RunStatusEnum.running, counters)
                         await session.commit()
                         consecutive_old_items += 1
-                        if consecutive_old_items >= only_old_exit_streak:
-                            print(f"[EARLY-EXIT] Detected {consecutive_old_items} consecutive old items; stopping sweep early.")
+                        # For scheduled monitor sweeps: stop as soon as we encounter the first old
+                        # after having seen at least N new items this run (default 1)
+                        try:
+                            if (
+                                stop_on_first_old
+                                and counters.get('uploaded', 0) >= min_new_before_break
+                                and processed_count >= probe_min_items
+                            ):
+                                print(
+                                    f"[EARLY-EXIT] First old item after {counters.get('uploaded',0)} new; scanned {processed_count} items ≥ probe; stopping sweep."
+                                )
+                                break
+                        except Exception:
+                            pass
+                        if (
+                            consecutive_old_items >= only_old_exit_streak
+                            and processed_count >= probe_min_items
+                        ):
+                            print(
+                                f"[EARLY-EXIT] Detected {consecutive_old_items} consecutive old items and scanned {processed_count} items ≥ probe; stopping sweep."
+                            )
                             break
                         continue
                     
@@ -859,7 +995,7 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                         write_start = time.time()
                         print(f"[WRITE/UPLOAD] {item_url}", end=" ", flush=True)
                         
-                        block_id, is_new = await _upsert_block(session, source_id, run_id, item, r2_key)
+                        block_id = await _upsert_block(session, source_id, run_id, item, r2_key)
                         
                         # Create user-block relationship if this is user content
                         if savee_user_id:
@@ -885,10 +1021,26 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                         })
                         print("---")
                         
-                        # If upsert created a new block, count as uploaded
-                        if is_new:
-                            counters['uploaded'] += 1
-                        
+                        # If upsert returned an existing block id (dedup), treat as skipped instead of uploaded
+                        try:
+                            # For now, detect dedup by querying if the block already existed for a different run
+                            # A safer approach is to have _upsert_block return an is_new flag
+                            same_run = await session.execute(
+                                select(func.count(Block.id)).where((Block.id == block_id) & (Block.run_id == run_id))
+                            )
+                            is_current_run = int(same_run.scalar() or 0) > 0
+                        except Exception:
+                            is_current_run = True
+
+                        if is_current_run:
+                            counters['uploaded'] = counters.get('uploaded', 0) + 1
+                        else:
+                            skipped_count += 1
+                            counters['skipped'] = skipped_count
+
+                        # Keep 'found' aligned with processed_count in real-time
+                        counters['found'] = processed_count
+
                         # Update run counters real-time
                         await update_run_status(session, run_id, RunStatusEnum.running, counters)
                         await session.commit()
@@ -918,16 +1070,17 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                         await update_run_status(session, run_id, RunStatusEnum.running, counters)
                         await session.commit()
             
-            # Final reconciliation: ensure uploaded count matches actual DB inserts for this run
+            # Reconcile counters deterministically just before completion
             try:
                 db_uploaded_result = await session.execute(
                     select(func.count(Block.id)).where(Block.run_id == run_id)
                 )
                 db_uploaded = int(db_uploaded_result.scalar() or 0)
                 counters['uploaded'] = db_uploaded
-                # found = processed_count (total items seen), skipped = found - uploaded
+                # processed (found) = exact iterator count
                 counters['found'] = processed_count
-                counters['skipped'] = processed_count - db_uploaded
+                # skipped = processed - uploaded
+                counters['skipped'] = max(0, processed_count - db_uploaded)
             except Exception as reconcile_err:
                 logger.error(f"Failed to reconcile counters for run {run_id}: {reconcile_err}")
 

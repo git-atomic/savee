@@ -169,11 +169,12 @@ export async function POST(request: NextRequest) {
         );
         break;
 
-      case "run_now":
+      case "run_now": {
+        const sourceId = parseInt(jobId);
         // Get source details directly from database
         const sourceResult = await db.query(
           "SELECT id, url FROM sources WHERE id = $1",
-          [parseInt(jobId)]
+          [sourceId]
         );
 
         if (sourceResult.rows.length === 0) {
@@ -185,7 +186,20 @@ export async function POST(request: NextRequest) {
 
         const source = sourceResult.rows[0];
 
-        // Check if there's already a running process for this job
+        // Check if there's already a running/paused/pending run in DB
+        const activeRun = await db.query(
+          `SELECT id FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending')
+             ORDER BY created_at DESC LIMIT 1`,
+          [sourceId]
+        );
+        if (activeRun.rows.length > 0) {
+          return NextResponse.json(
+            { success: false, error: "Run already active for this source" },
+            { status: 409 }
+          );
+        }
+
+        // Also check tracked processes (best-effort)
         if (runningProcesses.has(jobId)) {
           return NextResponse.json(
             { success: false, error: "Job is already running" },
@@ -193,47 +207,84 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Get latest run to get maxItems
-        const runsResult = await db.query(
-          "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
-          [parseInt(jobId)]
+        // Advisory lock to prevent duplicate starts
+        const lock = await db.query(
+          `SELECT pg_try_advisory_lock($1, $2) AS got`,
+          [424242, sourceId]
         );
-
-        const maxItems = runsResult.rows[0]?.max_items ?? null;
-
-        // Create new run directly in database
-        const runResult = await db.query(
-          `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id`,
-          [
-            parseInt(jobId),
-            "manual",
-            maxItems,
-            "pending",
-            JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
-            new Date(),
-          ]
-        );
-
-        const runId = runResult.rows[0].id;
-
-        // Start worker process using helper function
-        const started = await startWorkerProcess(
-          jobId,
-          runId,
-          source.url,
-          maxItems ?? 0,
-          db
-        );
-
-        if (!started) {
+        const got = Boolean(lock.rows?.[0]?.got);
+        if (!got) {
           return NextResponse.json(
-            { success: false, error: "Failed to start worker process" },
-            { status: 500 }
+            { success: false, error: "Job is locked, try again shortly" },
+            { status: 423 }
           );
         }
+        try {
+          // Get latest run to derive maxItems
+          const runsResult = await db.query(
+            "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
+            [sourceId]
+          );
+          const maxItems = runsResult.rows[0]?.max_items ?? null;
+
+          // Reuse latest completed/error run if possible
+          const reuse = await db.query(
+            `SELECT id FROM runs WHERE source_id = $1 AND status IN ('completed','error')
+               ORDER BY created_at DESC LIMIT 1`,
+            [sourceId]
+          );
+          let runId: number;
+          if (reuse.rows.length > 0) {
+            runId = reuse.rows[0].id as number;
+            await db.query(
+              `UPDATE runs SET status = 'running', counters = $1, started_at = $2, completed_at = NULL, error_message = NULL, updated_at = now()
+                 WHERE id = $3`,
+              [
+                JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
+                new Date(),
+                runId,
+              ]
+            );
+          } else {
+            const runResult = await db.query(
+              `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 RETURNING id`,
+              [
+                sourceId,
+                "manual",
+                maxItems,
+                "running",
+                JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
+                new Date(),
+              ]
+            );
+            runId = runResult.rows[0].id as number;
+          }
+
+          // Start worker process using helper function
+          const started = await startWorkerProcess(
+            jobId,
+            runId,
+            source.url,
+            maxItems ?? 0,
+            db
+          );
+
+          if (!started) {
+            return NextResponse.json(
+              { success: false, error: "Failed to start worker process" },
+              { status: 500 }
+            );
+          }
+        } finally {
+          await db.query(`SELECT pg_advisory_unlock($1, $2)`, [
+            424242,
+            sourceId,
+          ]);
+        }
         break;
+      }
 
       case "status":
         // Get process status for debugging
