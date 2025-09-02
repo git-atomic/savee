@@ -18,8 +18,8 @@ RUN apt-get update && \
     python -m pip install --upgrade pip && \
     rm -rf /var/lib/apt/lists/*
 
-# Enable corepack to use pnpm
-RUN corepack enable && corepack prepare pnpm@8.15.4 --activate
+# Enable corepack to use pnpm@10 (CMS engines require ^9 || ^10)
+RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
 
 # Copy repo
 COPY . .
