@@ -14,6 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
+# Python lib dirs (keep but do not ignore app-level lib folders)
 lib/
 lib64/
 parts/
@@ -243,6 +244,9 @@ web_modules/
 # Next.js build output
 .next
 out/
+
+# Allow cms src lib utilities to be committed
+!apps/cms/src/lib/
 
 # Nuxt.js build / generate output
 .nuxt
