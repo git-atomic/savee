@@ -95,6 +95,13 @@ export async function POST(request: NextRequest) {
     // Monitor options
     const url = new URL(request.url);
     const backfill = url.searchParams.get("backfill") === "true";
+    // External-runner mode: when true, monitor will not spawn Python.
+    // It will enqueue runs as 'pending' and return details in the response.
+    const modeParam = (url.searchParams.get("mode") || "").toLowerCase();
+    const externalRunner =
+      modeParam === "external" ||
+      String(process.env.MONITOR_MODE || "").toLowerCase() === "external" ||
+      String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true";
     const body = await (async () => {
       try {
         return await request.json();
@@ -124,6 +131,7 @@ export async function POST(request: NextRequest) {
     );
 
     const started: Array<{ sourceId: number; runId: number }> = [];
+    const startedDetails: Array<{ sourceId: number; runId: number; url: string; maxItems: number | null }>= [];
     const skipped: Array<{ sourceId: number; reason: string }> = [];
     let startedCount = 0;
 
@@ -216,22 +224,31 @@ export async function POST(request: NextRequest) {
       }
       try {
         // Always create a fresh run per sweep to avoid counter reuse/mutations
+        const kind = backfill || bodyBackfill ? "backfill" : "scheduled";
+        const initialStatus = externalRunner ? "pending" : "running";
         const runIns = await db.query(
           `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
           [
             sourceId,
-            backfill || bodyBackfill ? "backfill" : "scheduled",
+            kind,
             maxItems,
-            "running",
+            initialStatus,
             JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
             new Date(),
           ]
         );
         const runId: number = runIns.rows[0].id as number;
-        await startWorkerProcess(sourceId, runId, url, maxItems ?? 0, db);
-        started.push({ sourceId, runId });
-        startedCount += 1;
+        if (externalRunner) {
+          // Do not spawn a worker here. Return details for an external runner to execute.
+          started.push({ sourceId, runId });
+          startedDetails.push({ sourceId, runId, url, maxItems });
+          startedCount += 1;
+        } else {
+          await startWorkerProcess(sourceId, runId, url, maxItems ?? 0, db);
+          started.push({ sourceId, runId });
+          startedCount += 1;
+        }
       } finally {
         // Always release the advisory lock
         await db.query(`SELECT pg_advisory_unlock($1, $2)`, [424242, sourceId]);
@@ -241,8 +258,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       started,
+      startedDetails,
       skipped,
       backfill: backfill || bodyBackfill,
+      mode: externalRunner ? "external" : "inline",
     });
   } catch (error) {
     console.error("[monitor] Error:", error);
