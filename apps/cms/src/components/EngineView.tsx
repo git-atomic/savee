@@ -190,7 +190,7 @@ export default function EngineView() {
   // Fetch job logs using runId but store by sourceId for display
   const fetchJobLogs = async (runId: string) => {
     try {
-      const response = await fetch(`/api/engine/logs?runId=${runId}`); // Use runId parameter
+      const response = await fetch(`/api/engine/logs?runId=${runId}`, { cache: "no-store" });
       if (response.ok) {
         const data = await response.json();
         // Find which job this runId belongs to using ref
