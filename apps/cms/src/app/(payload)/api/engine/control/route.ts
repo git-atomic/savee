@@ -230,6 +230,7 @@ export async function POST(request: NextRequest) {
               { status: 409 }
             );
           }
+        }
           // Also check tracked processes (best-effort)
           if (runningProcesses.has(jobId)) {
             return NextResponse.json(
@@ -309,23 +310,26 @@ export async function POST(request: NextRequest) {
               String(process.env.VERCEL || "") === "1";
 
             if (externalRunner) {
-            // Do not spawn; return run details for external runner
-            const dispatched = await triggerGithubMonitor();
-            console.log(
-              `[run_now] dispatched=${dispatched}, token=${!!token}, repo=${!!repo}`
-            );
-            return NextResponse.json({
-              success: true,
-              jobId,
-              runId,
-              mode: "external",
-              dispatched,
-              message: dispatched
-                ? "Run enqueued and monitor dispatched"
-                : "Run enqueued as pending for external runner",
-              debug: { hasToken: !!token, hasRepo: !!repo, ref },
-            });
-          }
+              // Do not spawn; return run details for external runner
+              const dispatched = await triggerGithubMonitor();
+              const hasToken = !!(process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN);
+              const repoName = process.env.GITHUB_REPO || "";
+              const refName = process.env.GITHUB_REF || "main";
+              console.log(
+                `[run_now] dispatched=${dispatched}, token=${hasToken}, repo=${!!repoName}`
+              );
+              return NextResponse.json({
+                success: true,
+                jobId,
+                runId,
+                mode: "external",
+                dispatched,
+                message: dispatched
+                  ? "Run enqueued and monitor dispatched"
+                  : "Run enqueued as pending for external runner",
+                debug: { hasToken, hasRepo: !!repoName, ref: refName },
+              });
+            }
 
           // Start worker process using helper function (inline mode)
           const started = await startWorkerProcess(
