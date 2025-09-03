@@ -48,7 +48,18 @@ jobs:
           MONITOR_URL: ${{ secrets.MONITOR_URL }}
           ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
         run: |
-          URL="$MONITOR_URL"; [ -z "$URL" ] && URL="${CMS_URL%/}/api/engine/monitor"
+          norm() { echo "$1" | sed -E 's#/+$##' | sed -E 's#/admin$##'; }
+          CMS_BASE=$(norm "$CMS_URL")
+          MON_BASE=$(norm "$MONITOR_URL")
+          URL=""
+          if [ -n "$MON_BASE" ]; then
+            case "$MON_BASE" in
+              */api/engine/monitor*) URL="$MON_BASE" ;;
+              *) URL="${MON_BASE%/}/api/engine/monitor" ;;
+            esac
+          elif [ -n "$CMS_BASE" ]; then
+            URL="${CMS_BASE%/}/api/engine/monitor"
+          fi
           [ -z "$URL" ] && { echo "MONITOR_URL or CMS_URL required"; exit 1; }
           SID="${{ github.event.inputs.sourceId }}"; BF="${{ github.event.inputs.backfill }}"
           if [ "$BF" = "true" ]; then
@@ -59,7 +70,7 @@ jobs:
           fi
           if echo "$URL" | grep -q "?"; then URL="$URL&mode=external"; else URL="$URL?mode=external"; fi
           echo "POST $URL"
-          http_code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" -X POST "$URL")
+          http_code=$(curl --retry 3 --retry-delay 5 --max-time 25 --connect-timeout 10 -sS -o /tmp/resp.json -w "%{http_code}" -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" -X POST "$URL")
           echo "Response ($http_code):" && cat /tmp/resp.json || true
           if [ "$http_code" -ge 300 ]; then
             echo "Monitor returned HTTP $http_code"; exit 1; fi

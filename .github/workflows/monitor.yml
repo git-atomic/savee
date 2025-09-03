@@ -57,15 +57,27 @@ jobs:
           SOURCE_ID: ${{ github.event.client_payload.sourceId }}
           SEED_URL: ${{ secrets.SEED_URL }}
         run: |
-          URL="$MONITOR_URL"
-          if [ -z "$URL" ] && [ -n "$CMS_URL" ]; then
-            URL="${CMS_URL%/}/api/engine/monitor"
+          # Normalize provided URLs to avoid trailing /admin or / paths
+          norm() { echo "$1" | sed -E 's#/+$##' | sed -E 's#/admin$##'; }
+          CMS_BASE=$(norm "$CMS_URL")
+          MON_BASE=$(norm "$MONITOR_URL")
+
+          # Derive monitor URL
+          URL=""
+          if [ -n "$MON_BASE" ]; then
+            case "$MON_BASE" in
+              */api/engine/monitor*) URL="$MON_BASE" ;;
+              *) URL="${MON_BASE%/}/api/engine/monitor" ;;
+            esac
+          elif [ -n "$CMS_BASE" ]; then
+            URL="${CMS_BASE%/}/api/engine/monitor"
           fi
+
           if [ -z "$URL" ]; then echo "Provide MONITOR_URL or CMS_URL secret"; exit 1; fi
           # Seed a source if requested and none exist yet
           if [ -n "$SEED_URL" ] && [ -n "$CMS_URL" ]; then
             echo "Ensuring at least one source via /api/engine/run";
-            curl -sS -X POST "${CMS_URL%/}/api/engine/run?mode=external" \
+            curl --retry 3 --retry-delay 3 --max-time 20 -sS -X POST "${CMS_BASE%/}/api/engine/run?mode=external" \
               -H 'Content-Type: application/json' \
               --data "{\"url\":\"$SEED_URL\",\"maxItems\":0}" || true
           fi
@@ -79,7 +91,7 @@ jobs:
           # Force external-runner mode
           if echo "$URL" | grep -q "?"; then URL="$URL&mode=external"; else URL="$URL?mode=external"; fi
           echo "POST $URL"
-          http_code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" -X POST "$URL")
+          http_code=$(curl --retry 3 --retry-delay 5 --max-time 25 --connect-timeout 10 -sS -o /tmp/resp.json -w "%{http_code}" -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" -X POST "$URL")
           echo "Response ($http_code):" && cat /tmp/resp.json || true
           if [ "$http_code" -ge 300 ]; then
             echo "Monitor returned HTTP $http_code"; exit 1; fi
