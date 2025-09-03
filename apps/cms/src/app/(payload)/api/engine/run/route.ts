@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPayload } from "payload";
 import config from "@payload-config";
-import { parseSaveeUrl } from "@/lib/url-utils";
+import { parseSaveeUrl } from "../../../../../lib/url-utils";
 import { spawn } from "child_process";
 import path from "path";
 
@@ -24,6 +24,14 @@ export async function POST(request: NextRequest) {
     }
 
     const payload = await getPayload({ config });
+
+    // External-runner mode toggle: do not spawn Python, just enqueue run
+    const m = new URL(request.url);
+    const modeParam = (m.searchParams.get("mode") || "").toLowerCase();
+    const externalRunner =
+      modeParam === "external" ||
+      String(process.env.MONITOR_MODE || "").toLowerCase() === "external" ||
+      String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true";
 
     // Parse the URL to determine type and extract username
     const parsedUrl = parseSaveeUrl(url);
@@ -98,9 +106,10 @@ export async function POST(request: NextRequest) {
     if (reuse.rows.length > 0) {
       runId = reuse.rows[0].id as number;
       await pool.query(
-        `UPDATE runs SET status = 'running', counters = $1, started_at = $2, completed_at = NULL, error_message = NULL, updated_at = now()
-         WHERE id = $3`,
+        `UPDATE runs SET status = $1, counters = $2, started_at = $3, completed_at = NULL, error_message = NULL, updated_at = now()
+         WHERE id = $4`,
         [
+          externalRunner ? "pending" : "running",
           JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
           new Date(),
           runId,
@@ -113,7 +122,7 @@ export async function POST(request: NextRequest) {
           source: sourceId,
           kind: "manual",
           maxItems: typeof maxItems === "number" && maxItems > 0 ? maxItems : 0,
-          status: "running",
+          status: externalRunner ? "pending" : "running",
           counters: { found: 0, uploaded: 0, errors: 0 },
           startedAt: new Date().toISOString(),
         },
@@ -121,7 +130,19 @@ export async function POST(request: NextRequest) {
       runId = created.id as number;
     }
 
-    // Start worker process
+    // In external-runner mode, do not spawn; return run details
+    if (externalRunner) {
+      return NextResponse.json({
+        success: true,
+        runId,
+        sourceType: parsedUrl.sourceType,
+        username: parsedUrl.username,
+        mode: "external",
+        message: "Run enqueued as pending for external runner",
+      });
+    }
+
+    // Start worker process (inline mode)
     const workerPath = path.resolve(process.cwd(), "../worker");
     console.log(`🚀 Starting worker for run ${runId} with URL: ${url}`);
 

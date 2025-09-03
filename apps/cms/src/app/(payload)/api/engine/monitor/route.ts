@@ -131,7 +131,12 @@ export async function POST(request: NextRequest) {
     );
 
     const started: Array<{ sourceId: number; runId: number }> = [];
-    const startedDetails: Array<{ sourceId: number; runId: number; url: string; maxItems: number | null }>= [];
+    const startedDetails: Array<{
+      sourceId: number;
+      runId: number;
+      url: string;
+      maxItems: number | null;
+    }> = [];
     const skipped: Array<{ sourceId: number; reason: string }> = [];
     let startedCount = 0;
 

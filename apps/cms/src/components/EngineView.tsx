@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { parseSaveeUrl } from "@/lib/url-utils";
+import { parseSaveeUrl } from "../lib/url-utils";
 
 // Types
 interface JobData {

@@ -234,12 +234,18 @@ export async function POST(request: NextRequest) {
             [sourceId]
           );
           let runId: number;
+          const externalRunner =
+            String(process.env.MONITOR_MODE || "").toLowerCase() ===
+              "external" ||
+            String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true";
+
           if (reuse.rows.length > 0) {
             runId = reuse.rows[0].id as number;
             await db.query(
-              `UPDATE runs SET status = 'running', counters = $1, started_at = $2, completed_at = NULL, error_message = NULL, updated_at = now()
-                 WHERE id = $3`,
+              `UPDATE runs SET status = $1, counters = $2, started_at = $3, completed_at = NULL, error_message = NULL, updated_at = now()
+                 WHERE id = $4`,
               [
+                externalRunner ? "pending" : "running",
                 JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
                 new Date(),
                 runId,
@@ -254,7 +260,7 @@ export async function POST(request: NextRequest) {
                 sourceId,
                 "manual",
                 maxItems,
-                "running",
+                externalRunner ? "pending" : "running",
                 JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
                 new Date(),
               ]
@@ -262,7 +268,18 @@ export async function POST(request: NextRequest) {
             runId = runResult.rows[0].id as number;
           }
 
-          // Start worker process using helper function
+          if (externalRunner) {
+            // Do not spawn; return run details for external runner
+            return NextResponse.json({
+              success: true,
+              jobId,
+              runId,
+              mode: "external",
+              message: "Run enqueued as pending for external runner",
+            });
+          }
+
+          // Start worker process using helper function (inline mode)
           const started = await startWorkerProcess(
             jobId,
             runId,

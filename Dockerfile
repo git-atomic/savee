@@ -30,17 +30,9 @@ RUN pnpm install --frozen-lockfile || pnpm install
 RUN pnpm build
 
 # Install worker Python dependencies
-WORKDIR /app
-RUN python -m pip install \
-      aiohttp \
-      sqlalchemy \
-      asyncpg \
-      aioboto3 \
-      botocore \
-      pillow \
-      pydantic \
-      playwright \
-      crawl4ai
+WORKDIR /app/apps/worker
+COPY apps/worker/requirements.txt ./requirements.txt
+RUN python -m pip install -r requirements.txt
 
 # Ensure Playwright browsers for Python are installed (Chromium is sufficient)
 RUN python -m playwright install chromium --with-deps || true
