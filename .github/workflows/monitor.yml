@@ -7,15 +7,10 @@ on:
   repository_dispatch:
     types: [run_monitor]
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - .github/workflows/monitor.yml
       - apps/cms/src/app/(payload)/api/engine/**
-    inputs:
-      backfill:
-        description: "Run monitor with ?backfill=true"
-        type: boolean
-        default: false
 
 jobs:
   monitor:
@@ -31,7 +26,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install worker deps
         run: |
@@ -89,18 +84,6 @@ jobs:
           if [ "$http_code" -ge 300 ]; then
             echo "Monitor returned HTTP $http_code"; exit 1; fi
 
-      - name: Fetch existing pending runs (union)
-        env:
-          CMS_URL: ${{ secrets.CMS_URL }}
-          ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
-        run: |
-          if [ -n "$CMS_URL" ]; then
-            curl -sS -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" "${CMS_URL%/}/api/engine/pending" -o /tmp/pending.json || echo '{"pending":[]}' > /tmp/pending.json
-            echo "Pending:" && cat /tmp/pending.json || true
-          else
-            echo '{"pending":[]}' > /tmp/pending.json
-          fi
-
       - name: Run pending runs (Python worker)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -117,32 +100,7 @@ jobs:
           CMS_URL: ${{ secrets.CMS_URL }}
         run: |
           cd apps/worker
-          python - <<'PY'
-import json, os, subprocess, sys
-p='/tmp/resp.json'
-js=json.load(open(p)) if os.path.exists(p) else {}
-runs=js.get('startedDetails') or []
-# Merge with pre-existing pending list
-try:
-    pend=json.load(open('/tmp/pending.json')).get('pending') or []
-except Exception:
-    pend=[]
-def norm(x):
-    return {
-        'url': x.get('url'),
-        'runId': int(x.get('runId')) if x.get('runId') is not None else None,
-        'maxItems': x.get('maxItems'),
-    }
-runs = [norm(r) for r in runs] + [norm(r) for r in pend]
-if not runs:
-    print('No runs to execute'); sys.exit(0)
-for r in runs:
-    url=r.get('url'); run_id=str(r.get('runId')); max_items=r.get('maxItems') or 0
-    print('running:', run_id, url, max_items)
-    code=subprocess.call([sys.executable,'-m','app.cli','--start-url',url,'--max-items',str(max_items),'--run-id',run_id])
-    if code!=0:
-        sys.exit(code)
-PY
+          python scripts/run_pending_once.py
 
       - name: Notify Slack on failure
         if: failure()

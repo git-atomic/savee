@@ -54,11 +54,7 @@ jobs:
             exit 1;
           fi
           echo "Validating cookies JSON via Python";
-          python - <<'PY'
-import json
-json.load(open('apps/worker/savee_cookies.json'))
-print('Cookies JSON OK')
-PY
+          python -c "import json; json.load(open('apps/worker/savee_cookies.json')); print('Cookies JSON OK')"
 
       - name: Run one scrape cycle
         env:

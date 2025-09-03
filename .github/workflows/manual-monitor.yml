@@ -1,0 +1,78 @@
+name: Engine Monitor (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      sourceId:
+        description: "Optional sourceId to run immediately"
+        required: false
+        default: ""
+      backfill:
+        description: "Run monitor with ?backfill=true"
+        required: false
+        default: "false"
+
+jobs:
+  monitor:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install worker deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/worker/requirements.txt
+
+      - name: Install Playwright (with system deps)
+        run: |
+          python -m playwright install --with-deps chromium
+
+      - name: Prepare cookies file (optional)
+        env:
+          COOKIES_JSON: ${{ secrets.COOKIES_JSON }}
+        run: |
+          if [ -n "$COOKIES_JSON" ]; then
+            echo "$COOKIES_JSON" > apps/worker/savee_cookies.json
+          fi
+
+      - name: Call /api/engine/monitor
+        env:
+          CMS_URL: ${{ secrets.CMS_URL }}
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
+        run: |
+          URL="$MONITOR_URL"; [ -z "$URL" ] && URL="${CMS_URL%/}/api/engine/monitor"
+          [ -z "$URL" ] && { echo "MONITOR_URL or CMS_URL required"; exit 1; }
+          SID="${{ github.event.inputs.sourceId }}"; BF="${{ github.event.inputs.backfill }}"
+          if [ "$BF" = "true" ]; then
+            if echo "$URL" | grep -q "?"; then URL="$URL&backfill=true"; else URL="$URL?backfill=true"; fi
+          fi
+          if [ -n "$SID" ]; then
+            if echo "$URL" | grep -q "?"; then URL="$URL&sourceId=$SID"; else URL="$URL?sourceId=$SID"; fi
+          fi
+          if echo "$URL" | grep -q "?"; then URL="$URL&mode=external"; else URL="$URL?mode=external"; fi
+          echo "POST $URL"
+          http_code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" -X POST "$URL")
+          echo "Response ($http_code):" && cat /tmp/resp.json || true
+          if [ "$http_code" -ge 300 ]; then
+            echo "Monitor returned HTTP $http_code"; exit 1; fi
+
+      - name: Run pending runs (Python worker)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_REGION: auto
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: |
+          cd apps/worker
+          python scripts/run_pending_once.py
