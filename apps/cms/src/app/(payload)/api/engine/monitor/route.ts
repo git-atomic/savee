@@ -5,8 +5,12 @@ import { spawn } from "child_process";
 import path from "path";
 
 async function getDbConnection() {
+  console.log("[monitor] Getting payload instance...");
   const payload = await getPayload({ config });
-  return (payload.db as any).pool;
+  console.log("[monitor] Payload instance obtained, accessing DB pool...");
+  const pool = (payload.db as any).pool;
+  console.log("[monitor] DB pool accessed successfully");
+  return pool;
 }
 
 async function startWorkerProcess(
@@ -82,15 +86,20 @@ function isAuthorized(req: NextRequest): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  console.log("[monitor] POST request received");
   try {
     if (!isAuthorized(request)) {
+      console.log("[monitor] Authorization failed");
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 }
       );
     }
+    console.log("[monitor] Authorization passed");
 
+    console.log("[monitor] Getting DB connection...");
     const db = await getDbConnection();
+    console.log("[monitor] DB connection established");
     const requestedSourceId = (() => {
       try {
         const u = new URL(request.url);
@@ -278,11 +287,21 @@ export async function POST(request: NextRequest) {
       mode: externalRunner ? "external" : "inline",
     });
   } catch (error) {
-    console.error("[monitor] Error:", error);
-    const message =
-      error instanceof Error
-        ? `${error.name}: ${error.message}`
-        : String(error);
+    console.error("[monitor] Caught error:", error);
+    console.error("[monitor] Error type:", typeof error);
+    console.error("[monitor] Error constructor:", error?.constructor?.name);
+    
+    let message: string;
+    if (error instanceof Error) {
+      message = `${error.name}: ${error.message}`;
+      if (error.stack) {
+        console.error("[monitor] Stack trace:", error.stack);
+      }
+    } else {
+      message = `Unknown error: ${String(error)}`;
+    }
+    
+    console.error("[monitor] Returning error response:", message);
     return NextResponse.json(
       { success: false, error: message },
       { status: 500 }
