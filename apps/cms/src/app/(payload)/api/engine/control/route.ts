@@ -196,6 +196,7 @@ export async function POST(request: NextRequest) {
 
       case "run_now": {
         const sourceId = parseInt(jobId);
+        let runId: number | undefined;
         // Get source details directly from database
         const sourceResult = await db.query(
           "SELECT id, url FROM sources WHERE id = $1",
