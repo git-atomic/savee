@@ -16,7 +16,7 @@ on:
 
 jobs:
   run-worker-once:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -27,12 +27,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies for Playwright
+      - name: Install Playwright browsers (with system deps)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
-              libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-              libasound2 libatspi2.0-0 libxshmfence1 libx11-xcb1
+          python -m playwright install --with-deps chromium
 
       - name: Install Python dependencies
         working-directory: apps/worker
@@ -40,21 +37,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: |
-          python -m playwright install --with-deps chromium
-
       - name: Write Savee cookies to file
         run: |
           mkdir -p apps/worker
-          if [ -n "${{ secrets.COOKIES_URL }}" ]; then
+          if [ -n "${{ secrets.COOKIES_JSON }}" ]; then
+            echo "Writing cookies from COOKIES_JSON"
+            printf '%s' "${{ secrets.COOKIES_JSON }}" > apps/worker/savee_cookies.json;
+          elif [ -n "${{ secrets.COOKIES_URL }}" ]; then
             echo "Downloading cookies from COOKIES_URL";
             curl -fsSL "${{ secrets.COOKIES_URL }}" -o apps/worker/savee_cookies.json;
           elif [ -n "${{ secrets.COOKIES_JSON_MINIFIED }}" ]; then
             echo "Writing cookies from COOKIES_JSON_MINIFIED";
             printf '%s' "${{ secrets.COOKIES_JSON_MINIFIED }}" > apps/worker/savee_cookies.json;
           else
-            echo "No cookies provided. Set COOKIES_URL or COOKIES_JSON_MINIFIED secrets.";
+            echo "No cookies provided. Set COOKIES_JSON or COOKIES_URL or COOKIES_JSON_MINIFIED secrets.";
             exit 1;
           fi
           echo "Validating cookies JSON";
@@ -67,8 +63,10 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_REGION: auto
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           COOKIES_PATH: apps/worker/savee_cookies.json
+          CMS_URL: ${{ secrets.CMS_URL }}
         working-directory: apps/worker
         run: |
           MAX_ITEMS="${{ github.event.inputs.max_items }}";
