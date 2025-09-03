@@ -110,6 +110,7 @@ jobs:
           JOB_CONCURRENCY: ${{ secrets.JOB_CONCURRENCY }}
           ITEM_CONCURRENCY: ${{ secrets.ITEM_CONCURRENCY }}
           CMS_URL: ${{ secrets.CMS_URL }}
+          ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
         run: |
           cd apps/worker
           python scripts/run_pending_once.py
