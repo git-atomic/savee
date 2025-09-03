@@ -59,6 +59,7 @@ jobs:
           MONITOR_URL: ${{ secrets.MONITOR_URL }}
           ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
           BACKFILL: ${{ github.event.inputs.backfill }}
+          SOURCE_ID: ${{ github.event.client_payload.sourceId }}
           SEED_URL: ${{ secrets.SEED_URL }}
         run: |
           URL="$MONITOR_URL"
@@ -75,6 +76,10 @@ jobs:
           fi
           if [ "$BACKFILL" = "true" ]; then
             if echo "$URL" | grep -q "?"; then URL="$URL&backfill=true"; else URL="$URL?backfill=true"; fi
+          fi
+          # Optional: target a single sourceId from repository_dispatch payload
+          if [ -n "$SOURCE_ID" ]; then
+            if echo "$URL" | grep -q "?"; then URL="$URL&sourceId=$SOURCE_ID"; else URL="$URL?sourceId=$SOURCE_ID"; fi
           fi
           # Force external-runner mode
           if echo "$URL" | grep -q "?"; then URL="$URL&mode=external"; else URL="$URL?mode=external"; fi
