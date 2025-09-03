@@ -3,6 +3,7 @@ import { getPayload } from "payload";
 import config from "@payload-config";
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
+import type { NextFetchRequestConfig } from "next/server";
 
 // Process tracking for pause/resume functionality
 const runningProcesses = new Map<string, ChildProcess>();
@@ -123,6 +124,29 @@ export async function POST(request: NextRequest) {
 
     // Get database connection for direct updates
     const db = await getDbConnection();
+
+    // Helper: trigger GitHub Actions monitor workflow
+    async function triggerGithubMonitor(): Promise<boolean> {
+      try {
+        const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
+        const repo = process.env.GITHUB_REPO; // e.g., "git-atomic/savee"
+        const ref = process.env.GITHUB_REF || "main";
+        if (!token || !repo) return false;
+        const url = `https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `token ${token}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ref, inputs: { backfill: "false" } }),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    }
 
     switch (action) {
       case "pause":
@@ -270,12 +294,16 @@ export async function POST(request: NextRequest) {
 
           if (externalRunner) {
             // Do not spawn; return run details for external runner
+            const dispatched = await triggerGithubMonitor();
             return NextResponse.json({
               success: true,
               jobId,
               runId,
               mode: "external",
-              message: "Run enqueued as pending for external runner",
+              dispatched,
+              message: dispatched
+                ? "Run enqueued and monitor dispatched"
+                : "Run enqueued as pending for external runner",
             });
           }
 

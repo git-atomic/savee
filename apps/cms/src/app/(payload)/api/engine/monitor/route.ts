@@ -91,6 +91,15 @@ export async function POST(request: NextRequest) {
     }
 
     const db = await getDbConnection();
+    const requestedSourceId = (() => {
+      try {
+        const u = new URL(request.url);
+        const sid = u.searchParams.get("sourceId");
+        return sid ? parseInt(sid) : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
 
     // Monitor options
     const url = new URL(request.url);
@@ -123,11 +132,10 @@ export async function POST(request: NextRequest) {
 
     // Find all active sources (no overrides read, to avoid schema issues)
     const sourcesRes = await db.query(
-      `SELECT id, url
-       FROM sources
-       WHERE status = 'active'
-       ORDER BY updated_at DESC
-       LIMIT 200`
+      requestedSourceId
+        ? `SELECT id, url FROM sources WHERE id = $1 AND status = 'active'`
+        : `SELECT id, url FROM sources WHERE status = 'active' ORDER BY updated_at DESC LIMIT 200`,
+      requestedSourceId ? [requestedSourceId] : []
     );
 
     const started: Array<{ sourceId: number; runId: number }> = [];
