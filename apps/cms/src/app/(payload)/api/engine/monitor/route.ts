@@ -162,9 +162,9 @@ export async function POST(request: NextRequest) {
       const sourceId = row.id;
       const url = row.url;
 
-      // Skip if currently running/paused
+      // Skip if currently running/paused (cast enum to text; avoid LOWER on enum)
       const activeRun = await db.query(
-        `SELECT id FROM runs WHERE source_id = $1 AND LOWER(status) IN ('running','paused','pending')
+        `SELECT id FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending')
          ORDER BY created_at DESC LIMIT 1`,
         [sourceId]
       );
