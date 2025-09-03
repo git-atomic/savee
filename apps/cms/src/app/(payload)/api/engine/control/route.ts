@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
     const db = await getDbConnection();
 
     // Helper: trigger GitHub Actions monitor workflow
-    async function triggerGithubMonitor(): Promise<boolean> {
+    async function triggerGithubMonitor(sourceId?: string): Promise<boolean> {
       try {
         const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
         const repo = process.env.GITHUB_REPO; // e.g., "git-atomic/savee"
@@ -141,9 +141,20 @@ export async function POST(request: NextRequest) {
             Accept: "application/vnd.github+json",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ event_type: "run_monitor", client_payload: { sourceId: jobId } }),
+          body: JSON.stringify({ event_type: "run_monitor", client_payload: { sourceId: sourceId || jobId } }),
         });
-        return res.ok;
+        if (res.ok) return true;
+        // Fallback: workflow_dispatch
+        const wd = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`, {
+          method: "POST",
+          headers: {
+            Authorization: `token ${token}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ref, inputs: { sourceId: String(sourceId || jobId) } }),
+        });
+        return wd.ok;
       } catch {
         return false;
       }
@@ -312,7 +323,7 @@ export async function POST(request: NextRequest) {
 
             if (externalRunner) {
               // Do not spawn; return run details for external runner
-              const dispatched = await triggerGithubMonitor();
+              const dispatched = await triggerGithubMonitor(String(sourceId));
               const hasToken = !!(process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN);
               const repoName = process.env.GITHUB_REPO || "";
               const refName = process.env.GITHUB_REF || "main";
