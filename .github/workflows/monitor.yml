@@ -2,8 +2,13 @@ name: Engine Monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # every 5 minutes
+    - cron: "*/2 * * * *" # every 2 minutes
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - .github/workflows/monitor.yml
+      - apps/cms/src/app/(payload)/api/engine/**
     inputs:
       backfill:
         description: "Run monitor with ?backfill=true"
@@ -52,12 +57,20 @@ jobs:
           MONITOR_URL: ${{ secrets.MONITOR_URL }}
           ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
           BACKFILL: ${{ github.event.inputs.backfill }}
+          SEED_URL: ${{ secrets.SEED_URL }}
         run: |
           URL="$MONITOR_URL"
           if [ -z "$URL" ] && [ -n "$CMS_URL" ]; then
             URL="${CMS_URL%/}/api/engine/monitor"
           fi
           if [ -z "$URL" ]; then echo "Provide MONITOR_URL or CMS_URL secret"; exit 1; fi
+          # Seed a source if requested and none exist yet
+          if [ -n "$SEED_URL" ] && [ -n "$CMS_URL" ]; then
+            echo "Ensuring at least one source via /api/engine/run";
+            curl -sS -X POST "${CMS_URL%/}/api/engine/run?mode=external" \
+              -H 'Content-Type: application/json' \
+              --data "{\"url\":\"$SEED_URL\",\"maxItems\":0}" || true
+          fi
           if [ "$BACKFILL" = "true" ]; then
             if echo "$URL" | grep -q "?"; then URL="$URL&backfill=true"; else URL="$URL?backfill=true"; fi
           fi
