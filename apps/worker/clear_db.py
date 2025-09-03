@@ -8,7 +8,7 @@ from sqlalchemy import text
 from app.config import settings
 
 async def clear_db():
-    engine = create_async_engine(settings.async_database_url)
+    engine = create_async_engine(settings.async_database_url, connect_args=settings.asyncpg_connect_args)
     Session = async_sessionmaker(engine)
     
     async with Session() as session:

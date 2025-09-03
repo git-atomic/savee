@@ -9,7 +9,7 @@ from .blocks import (
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from ..config import settings
 
-_engine = create_async_engine(settings.async_database_url)
+_engine = create_async_engine(settings.async_database_url, connect_args=settings.asyncpg_connect_args)
 _Session = async_sessionmaker(_engine, expire_on_commit=False)
 
 class _SessionCtx:

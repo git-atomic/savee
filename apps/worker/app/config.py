@@ -158,28 +158,62 @@ class Settings(BaseSettings):
         elif url.startswith('postgresql://'):
             url = url.replace('postgresql://', 'postgresql+asyncpg://', 1)
 
-        # Convert libpq sslmode param to asyncpg-compatible 'ssl=true'
+        # Convert/remove sslmode and normalize to asyncpg-compatible 'ssl=true|false'
         try:
             from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
             sp = urlsplit(url)
-            query_pairs = dict(parse_qsl(sp.query, keep_blank_values=True))
-            if 'sslmode' in query_pairs:
-                mode = (query_pairs.pop('sslmode') or '').lower()
-                # For asyncpg, any sslmode that enforces TLS should map to ssl=true
-                if mode in {'require', 'verify-ca', 'verify-full'}:
-                    query_pairs['ssl'] = 'true'
-                elif mode in {'disable'}:
-                    query_pairs['ssl'] = 'false'
+            # Lowercase keys to handle case-insensitive params
+            raw_pairs = parse_qsl(sp.query, keep_blank_values=True)
+            qp = { (k or '').lower(): (v or '') for k, v in raw_pairs }
+
+            ssl_from_mode: str | None = None
+            if 'sslmode' in qp:
+                mode = (qp.pop('sslmode') or '').strip().lower()
+                if mode in {'disable'}:
+                    ssl_from_mode = 'false'
+                elif mode in {'allow', 'prefer', 'require', 'verify-ca', 'verify-full'}:
+                    ssl_from_mode = 'true'
                 else:
-                    # Default to enabling TLS for unknown/empty values
-                    query_pairs['ssl'] = 'true'
-            new_query = urlencode(query_pairs)
+                    # Unknown/invalid sslmode → default to secure true
+                    ssl_from_mode = 'true'
+
+            # Respect explicit ssl= if present, otherwise apply from sslmode mapping
+            if 'ssl' in qp:
+                v = (qp['ssl'] or '').strip().lower()
+                if v in {'1', 'true', 'yes', 'on', 'require'}:
+                    qp['ssl'] = 'true'
+                elif v in {'0', 'false', 'no', 'off', 'disable'}:
+                    qp['ssl'] = 'false'
+                else:
+                    # Default to secure
+                    qp['ssl'] = 'true'
+            elif ssl_from_mode is not None:
+                qp['ssl'] = ssl_from_mode
+
+            new_query = urlencode(qp)
             url = urlunsplit((sp.scheme, sp.netloc, sp.path, new_query, sp.fragment))
         except Exception:
             # If anything fails, fall back to the normalized URL
             pass
 
         return url
+
+    @property
+    def asyncpg_connect_args(self) -> Dict[str, Any]:
+        """Connection args for asyncpg (e.g., force ssl on/off)."""
+        try:
+            from urllib.parse import urlsplit, parse_qsl
+            sp = urlsplit(self.async_database_url)
+            qp = { (k or '').lower(): (v or '') for k, v in parse_qsl(sp.query, keep_blank_values=True) }
+            ssl_val = (qp.get('ssl') or '').strip().lower()
+            if ssl_val in {'1', 'true', 'yes', 'on', 'require'}:
+                return { 'ssl': True }
+            if ssl_val in {'0', 'false', 'no', 'off', 'disable'}:
+                return { 'ssl': False }
+        except Exception:
+            pass
+        # Default to secure connection
+        return { 'ssl': True }
     
     @property
     def sync_database_url(self) -> str:

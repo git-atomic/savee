@@ -742,7 +742,7 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
     # Initialize counters at the top to avoid UnboundLocalError
     counters = {'found': 0, 'uploaded': 0, 'errors': 0, 'skipped': 0}
     
-    engine = create_async_engine(settings.async_database_url)
+    engine = create_async_engine(settings.async_database_url, connect_args=settings.asyncpg_connect_args)
     Session = async_sessionmaker(engine)
     
     async with Session() as session:
