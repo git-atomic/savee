@@ -135,23 +135,65 @@ export async function POST(request: NextRequest) {
     if (externalRunner) {
       // Attempt to trigger GH monitor workflow so user sees action immediately
       let dispatched = false;
+      const dispatchLogs: Array<{ kind: string; status: number }> = [];
       try {
         const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
         const repo = process.env.GITHUB_REPO; // owner/repo
         const ref = process.env.GITHUB_REF || "main";
         console.log(`[add_job] token=${!!token}, repo=${repo}, ref=${ref}`);
         if (token && repo) {
-          const resp = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
-            method: "POST",
-            headers: {
-              Authorization: `token ${token}`,
-              Accept: "application/vnd.github+json",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ event_type: "run_monitor", client_payload: { sourceId: String(sourceId) } }),
-          });
-          dispatched = resp.ok;
-          console.log(`[add_job] repository_dispatch response: ${resp.status}`);
+          // 1) repository_dispatch
+          try {
+            const resp = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+              method: "POST",
+              headers: {
+                Authorization: `token ${token}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ event_type: "run_monitor", client_payload: { sourceId: String(sourceId) } }),
+            });
+            dispatchLogs.push({ kind: "repository_dispatch", status: resp.status });
+            dispatched ||= resp.ok;
+          } catch (e) {
+            console.log(`[add_job] repository_dispatch error: ${e}`);
+          }
+          // 2) workflow_dispatch monitor.yml
+          if (!dispatched) {
+            try {
+              const resp2 = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`, {
+                method: "POST",
+                headers: {
+                  Authorization: `token ${token}`,
+                  Accept: "application/vnd.github+json",
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ ref, inputs: { sourceId: String(sourceId) } }),
+              });
+              dispatchLogs.push({ kind: "workflow_dispatch:monitor.yml", status: resp2.status });
+              dispatched ||= resp2.ok;
+            } catch (e) {
+              console.log(`[add_job] workflow_dispatch monitor.yml error: ${e}`);
+            }
+          }
+          // 3) workflow_dispatch manual-monitor.yml
+          if (!dispatched) {
+            try {
+              const resp3 = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/manual-monitor.yml/dispatches`, {
+                method: "POST",
+                headers: {
+                  Authorization: `token ${token}`,
+                  Accept: "application/vnd.github+json",
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ ref, inputs: { sourceId: String(sourceId) } }),
+              });
+              dispatchLogs.push({ kind: "workflow_dispatch:manual-monitor.yml", status: resp3.status });
+              dispatched ||= resp3.ok;
+            } catch (e) {
+              console.log(`[add_job] workflow_dispatch manual-monitor.yml error: ${e}`);
+            }
+          }
         }
       } catch (e) {
         console.log(`[add_job] dispatch error: ${e}`);
@@ -173,6 +215,7 @@ export async function POST(request: NextRequest) {
           ),
           hasRepo: !!process.env.GITHUB_REPO,
           ref: process.env.GITHUB_REF || "main",
+          dispatchLogs,
         },
       });
     }
