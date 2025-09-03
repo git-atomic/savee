@@ -213,90 +213,107 @@ export async function POST(request: NextRequest) {
 
         // Check if there's already a running/paused/pending run in DB
         const activeRun = await db.query(
-          `SELECT id FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending')
+          `SELECT id, status FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending')
              ORDER BY created_at DESC LIMIT 1`,
           [sourceId]
         );
         if (activeRun.rows.length > 0) {
-          return NextResponse.json(
-            { success: false, error: "Run already active for this source" },
-            { status: 409 }
-          );
-        }
-
-        // Also check tracked processes (best-effort)
-        if (runningProcesses.has(jobId)) {
-          return NextResponse.json(
-            { success: false, error: "Job is already running" },
-            { status: 409 }
-          );
-        }
-
-        // Advisory lock to prevent duplicate starts
-        const lock = await db.query(
-          `SELECT pg_try_advisory_lock($1, $2) AS got`,
-          [424242, sourceId]
-        );
-        const got = Boolean(lock.rows?.[0]?.got);
-        if (!got) {
-          return NextResponse.json(
-            { success: false, error: "Job is locked, try again shortly" },
-            { status: 423 }
-          );
-        }
-        try {
-          // Get latest run to derive maxItems
-          const runsResult = await db.query(
-            "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
-            [sourceId]
-          );
-          const maxItems = runsResult.rows[0]?.max_items ?? null;
-
-          // Reuse latest completed/error run if possible
-          const reuse = await db.query(
-            `SELECT id FROM runs WHERE source_id = $1 AND status IN ('completed','error')
-               ORDER BY created_at DESC LIMIT 1`,
-            [sourceId]
-          );
-          let runId: number;
-          const externalRunner =
-            String(process.env.MONITOR_MODE || "").toLowerCase() ===
-              "external" ||
-            String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true";
-
-          if (reuse.rows.length > 0) {
-            runId = reuse.rows[0].id as number;
-            await db.query(
-              `UPDATE runs SET status = $1, counters = $2, started_at = $3, completed_at = NULL, error_message = NULL, updated_at = now()
-                 WHERE id = $4`,
-              [
-                externalRunner ? "pending" : "running",
-                JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
-                new Date(),
-                runId,
-              ]
-            );
+          const existingStatus = activeRun.rows[0].status;
+          console.log(`[run_now] found existing ${existingStatus} run for source ${sourceId}`);
+          // If it's just pending, we can reuse it instead of blocking
+          if (existingStatus === 'pending') {
+            console.log(`[run_now] reusing existing pending run ${activeRun.rows[0].id}`);
+            runId = activeRun.rows[0].id;
           } else {
-            const runResult = await db.query(
-              `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 RETURNING id`,
-              [
-                sourceId,
-                "manual",
-                maxItems,
-                externalRunner ? "pending" : "running",
-                JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
-                new Date(),
-              ]
+            return NextResponse.json(
+              { success: false, error: `Run already ${existingStatus} for this source` },
+              { status: 409 }
             );
-            runId = runResult.rows[0].id as number;
+          }
+          // Also check tracked processes (best-effort)
+          if (runningProcesses.has(jobId)) {
+            return NextResponse.json(
+              { success: false, error: "Job is already running" },
+              { status: 409 }
+            );
           }
 
-          if (externalRunner) {
+          // Advisory lock to prevent duplicate starts
+          const lock = await db.query(
+            `SELECT pg_try_advisory_lock($1, $2) AS got`,
+            [424242, sourceId]
+          );
+          const got = Boolean(lock.rows?.[0]?.got);
+          if (!got) {
+            return NextResponse.json(
+              { success: false, error: "Job is locked, try again shortly" },
+              { status: 423 }
+            );
+          }
+          try {
+            // Get latest run to derive maxItems
+            const runsResult = await db.query(
+              "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
+              [sourceId]
+            );
+            const maxItems = runsResult.rows[0]?.max_items ?? null;
+
+            // Only create new run if we don't have a pending one already
+            if (!runId) {
+              // Reuse latest completed/error run if possible
+              const reuse = await db.query(
+                `SELECT id FROM runs WHERE source_id = $1 AND status IN ('completed','error')
+                   ORDER BY created_at DESC LIMIT 1`,
+                [sourceId]
+              );
+              const externalRunner =
+                String(process.env.MONITOR_MODE || "").toLowerCase() ===
+                  "external" ||
+                String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true" ||
+                String(process.env.VERCEL || "") === "1";
+
+              if (reuse.rows.length > 0) {
+                runId = reuse.rows[0].id as number;
+                await db.query(
+                  `UPDATE runs SET status = $1, counters = $2, started_at = $3, completed_at = NULL, error_message = NULL, updated_at = now()
+                     WHERE id = $4`,
+                  [
+                    externalRunner ? "pending" : "running",
+                    JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
+                    new Date(),
+                    runId,
+                  ]
+                );
+              } else {
+                const runResult = await db.query(
+                  `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
+                     VALUES ($1, $2, $3, $4, $5, $6)
+                     RETURNING id`,
+                  [
+                    sourceId,
+                    "manual",
+                    maxItems,
+                    externalRunner ? "pending" : "running",
+                    JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
+                    new Date(),
+                  ]
+                );
+                runId = runResult.rows[0].id as number;
+              }
+            }
+            
+            const externalRunner =
+              String(process.env.MONITOR_MODE || "").toLowerCase() ===
+                "external" ||
+              String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true" ||
+              String(process.env.VERCEL || "") === "1";
+
+            if (externalRunner) {
             // Do not spawn; return run details for external runner
             const dispatched = await triggerGithubMonitor();
-            console.log(`[run_now] dispatched=${dispatched}, token=${!!token}, repo=${!!repo}`);
+            console.log(
+              `[run_now] dispatched=${dispatched}, token=${!!token}, repo=${!!repo}`
+            );
             return NextResponse.json({
               success: true,
               jobId,

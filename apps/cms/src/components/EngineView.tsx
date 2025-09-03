@@ -78,7 +78,10 @@ export default function EngineView() {
     const d = parseDate(value);
     if (!d) return "—";
     try {
-      return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
+      return d.toLocaleDateString("en-US", {
+        month: "2-digit",
+        day: "2-digit",
+      });
     } catch {
       return "—";
     }
@@ -540,7 +543,8 @@ export default function EngineView() {
                           ? job.nextRun
                             ? formatDateTime(job.nextRun)
                             : "Soon"
-                          : job.runStatus === "paused" || job.status === "paused"
+                          : job.runStatus === "paused" ||
+                              job.status === "paused"
                             ? "Paused"
                             : job.status === "running"
                               ? "Currently running"
@@ -690,9 +694,8 @@ export default function EngineView() {
                                     <div className="flex items-center gap-2 flex-wrap">
                                       {/* [Date | Time] Badge */}
                                       <span className="inline-flex items-center px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs">
-                                        [
-                                        {formatDateOnly(log.timestamp)} | {formatTimeOnly(log.timestamp)}
-                                        ]
+                                        [{formatDateOnly(log.timestamp)} |{" "}
+                                        {formatTimeOnly(log.timestamp)}]
                                       </span>
 
                                       {/* (TYPE) Badge */}

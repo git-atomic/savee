@@ -171,7 +171,10 @@ export async function POST(request: NextRequest) {
           ? "Run enqueued and monitor dispatched"
           : "Run enqueued as pending for external runner",
         debug: {
-          hasToken: !!(process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN),
+          hasToken: !!(
+            process.env.GITHUB_ACTIONS_TOKEN ||
+            process.env.GITHUB_DISPATCH_TOKEN
+          ),
           hasRepo: !!process.env.GITHUB_REPO,
           ref: process.env.GITHUB_REF || "main",
         },

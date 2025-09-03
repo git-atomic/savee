@@ -6,5 +6,3 @@ import "../lib/date-safe";
 export default function ClientBootstrap() {
   return null;
 }
-
-
