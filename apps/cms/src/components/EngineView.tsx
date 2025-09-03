@@ -57,6 +57,37 @@ export default function EngineView() {
     deleteUsers: boolean;
   } | null>(null);
 
+  // Safe date helpers
+  const parseDate = (value?: string | number | Date | null) => {
+    if (!value) return null;
+    const d = new Date(value as any);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const formatDateTime = (value?: string | number | Date | null) => {
+    const d = parseDate(value);
+    return d ? d.toLocaleString() : "—";
+  };
+
+  const formatDateOnly = (value?: string | number | Date | null) => {
+    const d = parseDate(value);
+    return d
+      ? d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" })
+      : "—";
+  };
+
+  const formatTimeOnly = (value?: string | number | Date | null) => {
+    const d = parseDate(value);
+    return d
+      ? d.toLocaleTimeString("en-US", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })
+      : "—";
+  };
+
   // Auto-detect source type from URL
   useEffect(() => {
     if (!url) return;
@@ -439,11 +470,9 @@ export default function EngineView() {
                     <div className="text-sm font-mono text-gray-800">
                       {job.url}
                     </div>
-                    {job.nextRun && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        Next run: {new Date(job.nextRun).toLocaleString()}
-                      </div>
-                    )}
+                    <div className="text-xs text-gray-500 mt-1">
+                      Next run: {formatDateTime(job.nextRun)}
+                    </div>
                   </div>
 
                   {/* Job Controls */}
@@ -495,13 +524,12 @@ export default function EngineView() {
                     {/* Info Button */}
                     <button
                       className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200"
-                      title={`Last run: ${job.lastRun ? new Date(job.lastRun).toLocaleString() : "Never"}\nNext: ${
+                      title={`Last run: ${formatDateTime(job.lastRun)}\nNext: ${
                         job.status === "active"
                           ? job.nextRun
-                            ? new Date(job.nextRun).toLocaleString()
+                            ? formatDateTime(job.nextRun)
                             : "Soon"
-                          : job.runStatus === "paused" ||
-                              job.status === "paused"
+                          : job.runStatus === "paused" || job.status === "paused"
                             ? "Paused"
                             : job.status === "running"
                               ? "Currently running"
@@ -652,21 +680,7 @@ export default function EngineView() {
                                       {/* [Date | Time] Badge */}
                                       <span className="inline-flex items-center px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs">
                                         [
-                                        {new Date(
-                                          log.timestamp
-                                        ).toLocaleDateString("en-US", {
-                                          month: "2-digit",
-                                          day: "2-digit",
-                                        })}{" "}
-                                        |{" "}
-                                        {new Date(
-                                          log.timestamp
-                                        ).toLocaleTimeString("en-US", {
-                                          hour12: false,
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                          second: "2-digit",
-                                        })}
+                                        {formatDateOnly(log.timestamp)} | {formatTimeOnly(log.timestamp)}
                                         ]
                                       </span>
 
