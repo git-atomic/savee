@@ -279,8 +279,12 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[monitor] Error:", error);
+    const message =
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error);
     return NextResponse.json(
-      { success: false, error: "Monitor failed" },
+      { success: false, error: message },
       { status: 500 }
     );
   }
