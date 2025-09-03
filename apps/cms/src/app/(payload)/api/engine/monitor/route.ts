@@ -110,7 +110,8 @@ export async function POST(request: NextRequest) {
     const externalRunner =
       modeParam === "external" ||
       String(process.env.MONITOR_MODE || "").toLowerCase() === "external" ||
-      String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true";
+      String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true" ||
+      String(process.env.VERCEL || "") === "1"; // default external on Vercel
     const body = await (async () => {
       try {
         return await request.json();

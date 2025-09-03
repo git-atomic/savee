@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
     const externalRunner =
       modeParam === "external" ||
       String(process.env.MONITOR_MODE || "").toLowerCase() === "external" ||
-      String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true";
+      String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true" ||
+      String(process.env.VERCEL || "") === "1"; // default external on Vercel
 
     // Parse the URL to determine type and extract username
     const parsedUrl = parseSaveeUrl(url);
@@ -132,6 +133,23 @@ export async function POST(request: NextRequest) {
 
     // In external-runner mode, do not spawn; return run details
     if (externalRunner) {
+      // Attempt to trigger GH monitor workflow so user sees action immediately
+      try {
+        const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
+        const repo = process.env.GITHUB_REPO; // owner/repo
+        const ref = process.env.GITHUB_REF || "main";
+        if (token && repo) {
+          await fetch(`https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`, {
+            method: "POST",
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: "application/vnd.github+json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ref, inputs: { backfill: "false" } }),
+          }).catch(() => {});
+        }
+      } catch {}
       return NextResponse.json({
         success: true,
         runId,
