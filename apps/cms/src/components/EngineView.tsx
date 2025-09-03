@@ -66,26 +66,37 @@ export default function EngineView() {
 
   const formatDateTime = (value?: string | number | Date | null) => {
     const d = parseDate(value);
-    return d ? d.toLocaleString() : "—";
+    if (!d) return "—";
+    try {
+      return d.toLocaleString();
+    } catch {
+      return "—";
+    }
   };
 
   const formatDateOnly = (value?: string | number | Date | null) => {
     const d = parseDate(value);
-    return d
-      ? d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" })
-      : "—";
+    if (!d) return "—";
+    try {
+      return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
+    } catch {
+      return "—";
+    }
   };
 
   const formatTimeOnly = (value?: string | number | Date | null) => {
     const d = parseDate(value);
-    return d
-      ? d.toLocaleTimeString("en-US", {
-          hour12: false,
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })
-      : "—";
+    if (!d) return "—";
+    try {
+      return d.toLocaleTimeString("en-US", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    } catch {
+      return "—";
+    }
   };
 
   // Auto-detect source type from URL
