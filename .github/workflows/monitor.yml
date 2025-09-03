@@ -82,6 +82,18 @@ jobs:
           if [ "$http_code" -ge 300 ]; then
             echo "Monitor returned HTTP $http_code"; exit 1; fi
 
+      - name: Fetch existing pending runs (union)
+        env:
+          CMS_URL: ${{ secrets.CMS_URL }}
+          ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
+        run: |
+          if [ -n "$CMS_URL" ]; then
+            curl -sS -H "Authorization: Bearer $ENGINE_MONITOR_TOKEN" "${CMS_URL%/}/api/engine/pending" -o /tmp/pending.json || echo '{"pending":[]}' > /tmp/pending.json
+            echo "Pending:" && cat /tmp/pending.json || true
+          else
+            echo '{"pending":[]}' > /tmp/pending.json
+          fi
+
       - name: Run pending runs (Python worker)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -103,6 +115,18 @@ import json, os, subprocess, sys
 p='/tmp/resp.json'
 js=json.load(open(p)) if os.path.exists(p) else {}
 runs=js.get('startedDetails') or []
+# Merge with pre-existing pending list
+try:
+    pend=json.load(open('/tmp/pending.json')).get('pending') or []
+except Exception:
+    pend=[]
+def norm(x):
+    return {
+        'url': x.get('url'),
+        'runId': int(x.get('runId')) if x.get('runId') is not None else None,
+        'maxItems': x.get('maxItems'),
+    }
+runs = [norm(r) for r in runs] + [norm(r) for r in pend]
 if not runs:
     print('No runs to execute'); sys.exit(0)
 for r in runs:
