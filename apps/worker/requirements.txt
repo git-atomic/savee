@@ -19,6 +19,7 @@ pydantic-settings==2.8.0
 # Image Processing & Web Scraping
 Pillow==10.4.0
 beautifulsoup4==4.12.3
+crawl4ai
 
 # Logging and Monitoring
 structlog==24.4.0
