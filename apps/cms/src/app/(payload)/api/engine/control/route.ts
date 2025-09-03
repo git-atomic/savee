@@ -128,7 +128,8 @@ export async function POST(request: NextRequest) {
     // Helper: trigger GitHub Actions monitor workflow
     async function triggerGithubMonitor(): Promise<boolean> {
       try {
-        const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
+        const token =
+          process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
         const repo = process.env.GITHUB_REPO; // e.g., "git-atomic/savee"
         const ref = process.env.GITHUB_REF || "main";
         if (!token || !repo) return false;
@@ -295,6 +296,7 @@ export async function POST(request: NextRequest) {
           if (externalRunner) {
             // Do not spawn; return run details for external runner
             const dispatched = await triggerGithubMonitor();
+            console.log(`[run_now] dispatched=${dispatched}, token=${!!token}, repo=${!!repo}`);
             return NextResponse.json({
               success: true,
               jobId,
@@ -304,6 +306,7 @@ export async function POST(request: NextRequest) {
               message: dispatched
                 ? "Run enqueued and monitor dispatched"
                 : "Run enqueued as pending for external runner",
+              debug: { hasToken: !!token, hasRepo: !!repo, ref },
             });
           }
 
