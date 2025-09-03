@@ -12,21 +12,49 @@ on:
 
 jobs:
   monitor:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     concurrency:
       group: monitor-${{ github.ref }}
       cancel-in-progress: false
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install worker deps and Playwright (with system deps)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/worker/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Prepare cookies file (optional)
+        env:
+          COOKIES_JSON: ${{ secrets.COOKIES_JSON }}
+        run: |
+          if [ -n "$COOKIES_JSON" ]; then
+            echo "$COOKIES_JSON" > apps/worker/savee_cookies.json
+            echo "Wrote cookies to apps/worker/savee_cookies.json"
+          else
+            echo "No COOKIES_JSON secret set; relying on COOKIES_PATH if provided."
+          fi
+
       - name: Call /api/engine/monitor (external-runner mode)
         env:
+          CMS_URL: ${{ secrets.CMS_URL }}
           MONITOR_URL: ${{ secrets.MONITOR_URL }}
           ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
           BACKFILL: ${{ github.event.inputs.backfill }}
         run: |
-          if [ -z "$MONITOR_URL" ]; then
-            echo "MONITOR_URL secret is missing"; exit 1; fi
           URL="$MONITOR_URL"
+          if [ -z "$URL" ] && [ -n "$CMS_URL" ]; then
+            URL="${CMS_URL%/}/api/engine/monitor"
+          fi
+          if [ -z "$URL" ]; then echo "Provide MONITOR_URL or CMS_URL secret"; exit 1; fi
           if [ "$BACKFILL" = "true" ]; then
             if echo "$URL" | grep -q "?"; then URL="$URL&backfill=true"; else URL="$URL?backfill=true"; fi
           fi
@@ -40,23 +68,34 @@ jobs:
 
       - name: Run pending runs (Python worker)
         env:
-          MONITOR_URL: ${{ secrets.MONITOR_URL }}
-          ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
           R2_REGION: auto
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          COOKIES_JSON: ${{ secrets.COOKIES_JSON }}
+          COOKIES_PATH: ${{ secrets.COOKIES_PATH }}
+          JOB_CONCURRENCY: ${{ secrets.JOB_CONCURRENCY }}
+          ITEM_CONCURRENCY: ${{ secrets.ITEM_CONCURRENCY }}
+          CMS_URL: ${{ secrets.CMS_URL }}
         run: |
-          python -c 'import sys, json; js=json.load(open("/tmp/resp.json"));
-          runs=js.get("startedDetails",[]);
-          import subprocess;
-          for r in runs:
-            url=r.get("url"); run_id=str(r.get("runId")); max_items=r.get("maxItems") or 0;
-            print("running:", run_id, url, max_items);
-            code=subprocess.call(["python","-m","app.cli","--start-url",url,"--max-items",str(max_items),"--run-id",run_id]);
-            if code!=0: sys.exit(code)'
+          cd apps/worker
+          python - <<'PY'
+import json, os, subprocess, sys
+p='/tmp/resp.json'
+js=json.load(open(p)) if os.path.exists(p) else {}
+runs=js.get('startedDetails') or []
+if not runs:
+    print('No runs to execute'); sys.exit(0)
+for r in runs:
+    url=r.get('url'); run_id=str(r.get('runId')); max_items=r.get('maxItems') or 0
+    print('running:', run_id, url, max_items)
+    code=subprocess.call([sys.executable,'-m','app.cli','--start-url',url,'--max-items',str(max_items),'--run-id',run_id])
+    if code!=0:
+        sys.exit(code)
+PY
 
       - name: Notify Slack on failure
         if: failure()
