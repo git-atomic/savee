@@ -27,15 +27,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Playwright browsers (with system deps)
-        run: |
-          python -m playwright install --with-deps chromium
-
       - name: Install Python dependencies
         working-directory: apps/worker
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Install Playwright browsers (with system deps)
+        run: |
+          python -m playwright install --with-deps chromium
 
       - name: Write Savee cookies to file
         run: |
@@ -53,8 +53,12 @@ jobs:
             echo "No cookies provided. Set COOKIES_JSON or COOKIES_URL or COOKIES_JSON_MINIFIED secrets.";
             exit 1;
           fi
-          echo "Validating cookies JSON";
-          jq empty apps/worker/savee_cookies.json
+          echo "Validating cookies JSON via Python";
+          python - <<'PY'
+import json
+json.load(open('apps/worker/savee_cookies.json'))
+print('Cookies JSON OK')
+PY
 
       - name: Run one scrape cycle
         env:
