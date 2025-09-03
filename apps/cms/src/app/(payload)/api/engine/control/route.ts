@@ -128,12 +128,12 @@ export async function POST(request: NextRequest) {
     // Helper: trigger GitHub Actions monitor workflow
     async function triggerGithubMonitor(): Promise<boolean> {
       try {
-        const token =
-          process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
+        const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
         const repo = process.env.GITHUB_REPO; // e.g., "git-atomic/savee"
         const ref = process.env.GITHUB_REF || "main";
         if (!token || !repo) return false;
-        const url = `https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`;
+        // Prefer repository_dispatch to avoid workflow file name mismatch
+        const url = `https://api.github.com/repos/${repo}/dispatches`;
         const res = await fetch(url, {
           method: "POST",
           headers: {
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
             Accept: "application/vnd.github+json",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ ref, inputs: { backfill: "false" } }),
+          body: JSON.stringify({ event_type: "run_monitor", client_payload: { sourceId: jobId } }),
         });
         return res.ok;
       } catch {

@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: "*/2 * * * *" # every 2 minutes
   workflow_dispatch:
+  repository_dispatch:
+    types: [run_monitor]
   push:
     branches: [ main ]
     paths:

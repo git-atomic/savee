@@ -136,26 +136,22 @@ export async function POST(request: NextRequest) {
       // Attempt to trigger GH monitor workflow so user sees action immediately
       let dispatched = false;
       try {
-        const token =
-          process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
+        const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
         const repo = process.env.GITHUB_REPO; // owner/repo
         const ref = process.env.GITHUB_REF || "main";
         console.log(`[add_job] token=${!!token}, repo=${repo}, ref=${ref}`);
         if (token && repo) {
-          const resp = await fetch(
-            `https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `token ${token}`,
-                Accept: "application/vnd.github+json",
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ ref, inputs: { backfill: "false" } }),
-            }
-          );
+          const resp = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+            method: "POST",
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: "application/vnd.github+json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ event_type: "run_monitor", client_payload: { sourceId: String(sourceId) } }),
+          });
           dispatched = resp.ok;
-          console.log(`[add_job] dispatch response: ${resp.status}`);
+          console.log(`[add_job] repository_dispatch response: ${resp.status}`);
         }
       } catch (e) {
         console.log(`[add_job] dispatch error: ${e}`);
