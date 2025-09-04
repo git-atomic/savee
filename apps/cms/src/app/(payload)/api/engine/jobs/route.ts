@@ -21,6 +21,9 @@ interface JobData {
   nextRun?: string;
   error?: string;
   origin?: string;
+  intervalSeconds?: number; // explicit override stored on source
+  disableBackoff?: boolean; // explicit setting stored on source
+  effectiveIntervalSeconds?: number; // computed: override or global
 }
 
 export async function GET() {
@@ -47,6 +50,23 @@ export async function GET() {
         });
 
         const latestRun = runs.docs[0];
+
+        // Compute nextRun using source overrides when possible
+        const envMin = parseInt(
+          process.env.MONITOR_MIN_INTERVAL_SECONDS || "60",
+          10
+        );
+        const overrideInterval =
+          typeof (source as any).intervalSeconds === "number"
+            ? Math.max(10, (source as any).intervalSeconds)
+            : null;
+        const baseInterval = overrideInterval ?? envMin;
+        const completedAtMs = latestRun?.completedAt
+          ? new Date(latestRun.completedAt).getTime()
+          : undefined;
+        const nextRunIso = completedAtMs
+          ? new Date(completedAtMs + baseInterval * 1000).toISOString()
+          : undefined;
 
         return {
           id: source.id.toString(),
@@ -94,19 +114,11 @@ export async function GET() {
                   errors: number;
                 }) || { found: 0, uploaded: 0, errors: 0 },
           lastRun: latestRun?.completedAt || latestRun?.startedAt || undefined,
-          nextRun: (() => {
-            const minIntervalSec = parseInt(
-              process.env.MONITOR_MIN_INTERVAL_SECONDS || "60",
-              10
-            );
-            const completedAtMs = latestRun?.completedAt
-              ? new Date(latestRun.completedAt).getTime()
-              : undefined;
-            if (!completedAtMs) return undefined;
-            const base = completedAtMs + minIntervalSec * 1000;
-            const nextMs = Math.max(base, Date.now());
-            return new Date(nextMs).toISOString();
-          })(),
+          nextRun: nextRunIso,
+          // Echo schedule so UI can show/edit current values
+          intervalSeconds: (source as any).intervalSeconds ?? undefined,
+          disableBackoff: (source as any).disableBackoff ?? undefined,
+          effectiveIntervalSeconds: baseInterval,
           error: latestRun?.errorMessage || undefined,
         };
       })

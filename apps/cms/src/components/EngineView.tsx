@@ -644,7 +644,7 @@ export default function EngineView() {
                         type="number"
                         min={10}
                         placeholder="Interval (s)"
-                        defaultValue={job.intervalSeconds as any}
+                        defaultValue={(job.intervalSeconds ?? job.effectiveIntervalSeconds ?? undefined) as any}
                         onBlur={(e) =>
                           updateScheduleInline(
                             job.id,
