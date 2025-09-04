@@ -50,16 +50,8 @@ jobs:
           COOKIES_JSON: ${{ secrets.COOKIES_JSON }}
         run: |
           if [ -n "$COOKIES_JSON" ]; then
-            printf "%s" "$COOKIES_JSON" > apps/worker/savee_cookies.json
-            echo "Validating cookies JSON via Python"
-            python -c "import json,sys,re,ast; p='apps/worker/savee_cookies.json'; raw=open(p,'r',encoding='utf-8').read();\
-def write(d):\n open(p,'w',encoding='utf-8').write(json.dumps(d))\n\
-try:\n d=json.loads(raw); write(d); sys.exit(0)\n\
-except Exception:\n pass\n\
-try:\n d=ast.literal_eval(raw); write(d); sys.exit(0)\n\
-except Exception:\n pass\n\
-fixed=re.sub(r'([,{]\\s*)([A-Za-z0-9_\-]+)\\s*:', r'\\1\"\\2\":', raw)\nfixed=fixed.replace("'","\"")\n\
-try:\n d=json.loads(fixed); write(d)\nexcept Exception:\n pass" || true
+            printf "%s" "$COOKIES_JSON" > apps/worker/savee_cookies.json || true
+            # Skip strict validation; worker tolerates missing/invalid cookies
           fi
 
       - name: Call /api/engine/monitor (manual trigger)
