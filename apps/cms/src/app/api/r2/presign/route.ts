@@ -34,11 +34,19 @@ export async function GET(req: NextRequest) {
     });
     const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
     const url = await getSignedUrl(client, cmd, { expiresIn: 300 }); // 5 min
+    
     const mode = searchParams.get("mode") || "json";
     if (mode === "redirect") {
-      return NextResponse.redirect(url);
+      return NextResponse.redirect(url, 302);
     }
-    return NextResponse.json({ success: true, url });
+    
+    return NextResponse.json({ success: true, url }, { 
+      headers: { 
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }
+    });
   } catch (e) {
     return NextResponse.json(
       { success: false, error: String(e) },
