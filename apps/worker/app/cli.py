@@ -210,7 +210,7 @@ def _generate_r2_key(url: str, external_id: str) -> str:
 
 async def _create_or_update_savee_user(session: AsyncSession, username: str, url: str) -> int:
     """Create or update SaveeUser profile with scraped data"""
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     from datetime import datetime, timezone
     import re
     
@@ -236,6 +236,11 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                     # Extract profile data from HTML
                     profile_data = _extract_user_profile_data(html_content, username, url)
 
+                    # Ensure avatar_r2_key column exists (idempotent)
+                    try:
+                        await session.execute(text("ALTER TABLE savee_users ADD COLUMN IF NOT EXISTS avatar_r2_key VARCHAR(500)"))
+                    except Exception:
+                        pass
                     # Attempt avatar upload to R2 when image available
                     try:
                         avatar_url = profile_data.get('profile_image_url')
