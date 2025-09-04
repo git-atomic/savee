@@ -10,7 +10,7 @@ type Props = {
 export default function BlockPreviewCell({ rowData }: Props) {
   const r2Key: string | undefined = rowData?.r2_key || rowData?.r2Key;
   const url: string = r2Key
-    ? `/api/r2/presign?key=${encodeURIComponent(r2Key.replace(/\/+/g, "/"))}`
+    ? `/api/r2/presign?mode=redirect&key=${encodeURIComponent(r2Key.replace(/\/+/g, "/"))}`
     : rowData?.thumbnail_url ||
       rowData?.image_url ||
       rowData?.og_image_url ||
