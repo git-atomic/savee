@@ -37,24 +37,55 @@ def main() -> int:
     if not runs:
         print("No runs to execute")
         return 0
-    for r in runs:
-        url = r.get("url")
-        run_id = str(r.get("runId"))
-        max_items = r.get("maxItems") or 0
-        print("running:", run_id, url, max_items)
-        code = sp.call([
-            sys.executable,
-            "-m",
-            "app.cli",
-            "--start-url",
-            url,
-            "--max-items",
-            str(max_items),
-            "--run-id",
-            run_id,
-        ])
-        if code != 0:
-            return code
+    # Support simple parallelism with a small worker pool
+    try:
+        parallel = int(os.environ.get("WORKER_PARALLELISM", "2"))
+    except Exception:
+        parallel = 2
+    parallel = max(1, min(parallel, 4))
+
+    procs = []
+    idx = 0
+    while idx < len(runs) or procs:
+        # Spawn until pool is full
+        while idx < len(runs) and len(procs) < parallel:
+            r = runs[idx]
+            idx += 1
+            url = r.get("url")
+            run_id = str(r.get("runId"))
+            max_items = r.get("maxItems") or 0
+            print("running:", run_id, url, max_items)
+            p = sp.Popen([
+                sys.executable,
+                "-m",
+                "app.cli",
+                "--start-url",
+                url,
+                "--max-items",
+                str(max_items),
+                "--run-id",
+                run_id,
+            ])
+            procs.append(p)
+        # Wait for any to finish
+        for i, p in list(enumerate(procs)):
+            code = p.poll()
+            if code is not None:
+                procs.pop(i)
+                if code != 0:
+                    # terminate others
+                    for q in procs:
+                        try:
+                            q.terminate()
+                        except Exception:
+                            pass
+                    return code
+        # Avoid busy loop
+        if procs:
+            try:
+                procs[0].wait(timeout=1)
+            except Exception:
+                pass
     return 0
 
 
