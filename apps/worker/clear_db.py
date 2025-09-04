@@ -22,13 +22,26 @@ async def clear_db():
         result = await session.execute(text('SELECT COUNT(*) FROM runs'))
         runs_count = result.scalar()
         
-        print(f'Current data: {blocks_count} blocks, {sources_count} sources, {runs_count} runs')
+        result = await session.execute(text('SELECT COUNT(*) FROM savee_users'))
+        users_count = result.scalar()
+        print(f'Current data: {blocks_count} blocks, {sources_count} sources, {runs_count} runs, {users_count} users')
         
-        if blocks_count > 0 or sources_count > 0 or runs_count > 0:
+        if blocks_count > 0 or sources_count > 0 or runs_count > 0 or users_count > 0:
             # Clear all data (order matters due to foreign keys)
+            # user_blocks first (if present)
+            try:
+                await session.execute(text('DELETE FROM user_blocks'))
+            except Exception:
+                pass
             await session.execute(text('DELETE FROM blocks'))
             await session.execute(text('DELETE FROM runs')) 
             await session.execute(text('DELETE FROM sources'))
+            # logs table (if exists)
+            try:
+                await session.execute(text('DELETE FROM job_logs'))
+            except Exception:
+                pass
+            await session.execute(text('DELETE FROM savee_users'))
             await session.commit()
             
             print('Database cleared!')
