@@ -24,17 +24,57 @@ export default function BlockPreviewCell({ rowData }: Props) {
     og: rowData?.og_image_url ? `${rowData.og_image_url.substring(0, 30)}...` : "null",
   };
 
+  // Helper: decide if this row is a video asset
+  const isVideoAsset = (): boolean => {
+    const mt = (rowData?.media_type || rowData?.mediaType || "").toString().toLowerCase();
+    const byType = mt === "video";
+    const byField = Boolean(rowData?.video_url || rowData?.videoUrl);
+    const byKey = typeof r2Key === "string" && /(?:\/video_|\.mp4$|\.webm$)/i.test(r2Key);
+    return Boolean(byType || byField || byKey);
+  };
+
+  // Helper: derive a smaller image variant for R2 originals
+  const deriveImageVariantKey = (key: string): string => {
+    try {
+      // original_{hash}.ext  -> small_{hash}.jpg
+      const match = key.match(/^(.*)\/original_([0-9a-f]{8,})\.[a-z0-9]+$/i);
+      if (match) {
+        const base = match[1];
+        const hash = match[2];
+        return `${base}/small_${hash}.jpg`;
+      }
+      return key;
+    } catch {
+      return key;
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     
     async function loadImage() {
       if (cancelled) return;
       
-      // PRIORITY 1: Try R2 first if we have a key
+      // If this is a video, do NOT try to display the R2 mp4 in an <img>.
+      // Prefer Savee thumbnail/og/image instead, or show the 'video' label.
+      if (isVideoAsset()) {
+        const fallbackUrl =
+          rowData?.thumbnail_url ||
+          rowData?.og_image_url ||
+          rowData?.image_url ||
+          "";
+        setDebugInfo(fallbackUrl ? "video: using fallback image" : "video: no fallback image available");
+        setSrc(fallbackUrl);
+        setLoading(false);
+        return;
+      }
+
+      // PRIORITY 1: Try R2 first if we have a key and it's an image
       if (r2Key && typeof r2Key === "string") {
         setDebugInfo(`Trying R2: ${r2Key}`);
         try {
-          const cleanKey = r2Key.replace(/\/+/g, "/");
+          const imgKey = deriveImageVariantKey(r2Key);
+          const cleanKey = imgKey.replace(/\/+/g, "/");
           const presignUrl = `/api/r2/presign?mode=json&key=${encodeURIComponent(cleanKey)}`;
           console.log("Fetching presign URL:", presignUrl);
           
