@@ -204,7 +204,7 @@ def _generate_r2_key(url: str, external_id: str) -> str:
     elif source_type == SourceTypeEnum.user:
         username = _extract_username(url)
         if username:
-            return f"{username}/blocks/{external_id}"
+            return f"users/{username}/blocks/{external_id}"
         return f"unknown/blocks/{external_id}"
     return f"misc/blocks/{external_id}"
 

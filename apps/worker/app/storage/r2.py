@@ -229,7 +229,7 @@ class R2Storage:
             image_data = await self.download_url(avatar_url)
             content_hash = hashlib.sha256(image_data).hexdigest()[:16]
             # Avatars are normalized to JPEG for consistency
-            base_key = f"{username}/avatar"
+            base_key = f"users/{username}/avatar"
             original_key = f"{base_key}/original_{content_hash}.jpg"
             await self.upload_file(image_data, original_key, 'image/jpeg')
             # Generate avatar sizes (small set)
