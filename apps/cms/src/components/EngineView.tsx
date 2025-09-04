@@ -64,11 +64,6 @@ export default function EngineView() {
     intervalSeconds: string;
     disableBackoff: boolean;
   } | null>(null);
-  const [scheduleEdit, setScheduleEdit] = useState<{
-    jobId: string;
-    intervalSeconds: string;
-    disableBackoff: boolean;
-  } | null>(null);
 
   // Safe date helpers
   const parseDate = (value?: string | number | Date | null) => {
@@ -650,15 +645,30 @@ export default function EngineView() {
                         min={10}
                         placeholder="Interval (s)"
                         defaultValue={job.intervalSeconds as any}
-                        onBlur={(e) => updateScheduleInline(job.id, e.currentTarget.value, undefined)}
+                        onBlur={(e) =>
+                          updateScheduleInline(
+                            job.id,
+                            e.currentTarget.value,
+                            undefined
+                          )
+                        }
                         className="w-28 px-2 py-1 border border-gray-300 rounded text-sm"
                         title="Override interval in seconds (blank=global)"
                       />
-                      <label className="flex items-center gap-1 text-xs text-gray-700" title="Adaptive backoff reduces frequency after errors/zero-uploads">
+                      <label
+                        className="flex items-center gap-1 text-xs text-gray-700"
+                        title="Adaptive backoff reduces frequency after errors/zero-uploads"
+                      >
                         <input
                           type="checkbox"
                           defaultChecked={!job.disableBackoff}
-                          onChange={(e) => updateScheduleInline(job.id, undefined, e.currentTarget.checked)}
+                          onChange={(e) =>
+                            updateScheduleInline(
+                              job.id,
+                              undefined,
+                              e.currentTarget.checked
+                            )
+                          }
                         />
                         Adaptive
                       </label>
