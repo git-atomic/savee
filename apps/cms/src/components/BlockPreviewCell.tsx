@@ -63,8 +63,18 @@ export default function BlockPreviewCell({ rowData }: Props) {
           if (m) {
             const posterKey = `${m[1]}/poster_${m[2]}.jpg`;
             try {
-              const res = await fetch(`/api/r2/presign?mode=json&key=${encodeURIComponent(posterKey)}`);
-              const data = await res.json().catch(() => null);
+              // Prefer proxy mode to keep visualcms.vercel.app origin
+              const proxied = `/api/r2/presign?mode=proxy&key=${encodeURIComponent(posterKey)}`;
+              const res = await fetch(proxied, { method: 'GET' });
+              if (res.ok) {
+                setSrc(proxied);
+                setLoading(false);
+                setDebugInfo('video: R2 poster (proxy)');
+                return;
+              }
+              // Fallback to JSON presign
+              const resJson = await fetch(`/api/r2/presign?mode=json&key=${encodeURIComponent(posterKey)}`);
+              const data = await resJson.json().catch(() => null);
               if (data?.success && data?.url) {
                 setSrc(data.url);
                 setLoading(false);
@@ -89,22 +99,22 @@ export default function BlockPreviewCell({ rowData }: Props) {
         try {
           const imgKey = deriveImageVariantKey(r2Key);
           const cleanKey = imgKey.replace(/\/+/g, "/");
+          const proxied = `/api/r2/presign?mode=proxy&key=${encodeURIComponent(cleanKey)}`;
+          // Try proxy first (keeps our domain)
+          const resProxy = await fetch(proxied, { method: 'GET' });
+          if (resProxy.ok) {
+            setDebugInfo('image: R2 proxy');
+            setSrc(proxied);
+            setLoading(false);
+            return;
+          }
+          // Fallback to JSON presign
           const presignUrl = `/api/r2/presign?mode=json&key=${encodeURIComponent(cleanKey)}`;
-          console.log("Fetching presign URL:", presignUrl);
-          
-          const res = await fetch(presignUrl, { 
-            method: "GET",
-            headers: { "Content-Type": "application/json" }
-          });
-          
-          console.log("Presign response:", res.status, res.statusText);
-          
+          const res = await fetch(presignUrl, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
           if (res.ok) {
             const data = await res.json();
-            console.log("Presign data:", data);
-            
             if (!cancelled && data?.success && data?.url) {
-              setDebugInfo(`R2 success: ${data.url.substring(0, 50)}...`);
+              setDebugInfo('image: R2 json');
               setSrc(data.url);
               setLoading(false);
               return; // Success! Use R2 URL

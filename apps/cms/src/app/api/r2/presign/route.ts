@@ -34,19 +34,34 @@ export async function GET(req: NextRequest) {
     });
     const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
     const url = await getSignedUrl(client, cmd, { expiresIn: 300 }); // 5 min
-    
+
     const mode = searchParams.get("mode") || "json";
     if (mode === "redirect") {
       return NextResponse.redirect(url, 302);
     }
-    
-    return NextResponse.json({ success: true, url }, { 
-      headers: { 
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0"
+    if (mode === "proxy") {
+      try {
+        const res = await client.send(cmd);
+        const headers = new Headers();
+        if (res.ContentType) headers.set("Content-Type", res.ContentType);
+        headers.set("Cache-Control", "public, max-age=300, s-maxage=300");
+        if (res.ETag) headers.set("ETag", res.ETag.replace(/\"/g, ""));
+        return new NextResponse(res.Body as any, { status: 200, headers });
+      } catch (e) {
+        return NextResponse.json({ success: false, error: String(e) }, { status: 404 });
       }
-    });
+    }
+
+    return NextResponse.json(
+      { success: true, url },
+      {
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
+          "Expires": "0",
+        },
+      }
+    );
   } catch (e) {
     return NextResponse.json(
       { success: false, error: String(e) },
