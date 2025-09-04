@@ -55,15 +55,29 @@ export default function BlockPreviewCell({ rowData }: Props) {
     async function loadImage() {
       if (cancelled) return;
       
-      // If this is a video, do NOT try to display the R2 mp4 in an <img>.
-      // Prefer Savee thumbnail/og/image instead, or show the 'video' label.
+      // If this is a video, try R2 poster first, then Savee fallback.
       if (isVideoAsset()) {
-        const fallbackUrl =
-          rowData?.thumbnail_url ||
-          rowData?.og_image_url ||
-          rowData?.image_url ||
-          "";
-        setDebugInfo(fallbackUrl ? "video: using fallback image" : "video: no fallback image available");
+        // If R2 key exists, try to use poster_<hash>.jpg that matches video_<hash>.*
+        if (r2Key && typeof r2Key === 'string') {
+          const m = r2Key.match(/^(.*)\/video_([0-9a-f]{8,})\.[a-z0-9]+$/i);
+          if (m) {
+            const posterKey = `${m[1]}/poster_${m[2]}.jpg`;
+            try {
+              const res = await fetch(`/api/r2/presign?mode=json&key=${encodeURIComponent(posterKey)}`);
+              const data = await res.json().catch(() => null);
+              if (data?.success && data?.url) {
+                setSrc(data.url);
+                setLoading(false);
+                setDebugInfo('video: R2 poster');
+                return;
+              }
+            } catch (_) {
+              // ignore and fall back
+            }
+          }
+        }
+        const fallbackUrl = rowData?.thumbnail_url || rowData?.og_image_url || rowData?.image_url || "";
+        setDebugInfo(fallbackUrl ? 'video: fallback image' : 'video: no poster');
         setSrc(fallbackUrl);
         setLoading(false);
         return;

@@ -167,8 +167,12 @@ class R2Storage:
             logger.error(f"Failed to upload image {image_url}: {e}")
             raise
             
-    async def upload_video(self, video_url: str, base_key: str) -> str:
-        """Upload video file"""
+    async def upload_video(self, video_url: str, base_key: str, poster_image_url: Optional[str] = None) -> str:
+        """Upload video file and, if available, upload a poster image to R2.
+
+        Returns the video key. The poster will be stored as
+        f"{base_key}/poster_<video_content_hash>.jpg" if poster_image_url is provided.
+        """
         try:
             # Download video
             video_data = await self.download_url(video_url)
@@ -180,6 +184,27 @@ class R2Storage:
             # Upload video
             video_key = f"{base_key}/video_{content_hash}{ext}"
             await self.upload_file(video_data, video_key, 'video/mp4')
+
+            # Optionally upload poster derived from provided image url
+            if poster_image_url:
+                try:
+                    img_bytes = await self.download_url(poster_image_url)
+                    image = Image.open(BytesIO(img_bytes))
+                    if image.mode in ('RGBA', 'LA', 'P'):
+                        image = image.convert('RGB')
+
+                    # Resize to a reasonable preview size
+                    max_w = 600
+                    if image.width > max_w:
+                        ratio = max_w / float(image.width)
+                        image = image.resize((max_w, int(image.height * ratio)), Image.Resampling.LANCZOS)
+
+                    buf = BytesIO()
+                    image.save(buf, format='JPEG', quality=85, optimize=True)
+                    poster_key = f"{base_key}/poster_{content_hash}.jpg"
+                    await self.upload_file(buf.getvalue(), poster_key, 'image/jpeg')
+                except Exception as poster_err:
+                    logger.debug(f"Poster upload failed (non-fatal): {poster_err}")
             
             return video_key
             

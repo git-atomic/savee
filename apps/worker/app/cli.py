@@ -1011,7 +1011,9 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                             if getattr(item, 'media_type', 'image') == 'image':
                                 r2_key = await storage.upload_image(item.media_url, base_key)
                             elif getattr(item, 'media_type', 'image') == 'video':
-                                r2_key = await storage.upload_video(item.media_url, base_key)
+                                # Try to pass a poster candidate so CMS can preview from R2
+                                poster_candidate = getattr(item, 'thumbnail_url', None) or getattr(item, 'og_image_url', None) or getattr(item, 'image_url', None)
+                                r2_key = await storage.upload_video(item.media_url, base_key, poster_candidate)
                         
                         upload_time = time.time() - upload_start
                         print(f"| OK | Time: {upload_time:.2f}s")
