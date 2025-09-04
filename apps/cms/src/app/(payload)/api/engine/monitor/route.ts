@@ -100,6 +100,19 @@ export async function POST(request: NextRequest) {
     console.log("[monitor] Getting DB connection...");
     const db = await getDbConnection();
     console.log("[monitor] DB connection established");
+    // Ensure per-source scheduling columns exist (no-op if present)
+    try {
+      await db.query(
+        `ALTER TABLE sources 
+         ADD COLUMN IF NOT EXISTS interval_seconds INTEGER,
+         ADD COLUMN IF NOT EXISTS disable_backoff BOOLEAN DEFAULT FALSE`
+      );
+    } catch (e) {
+      console.warn(
+        "[monitor] Could not ensure schedule columns on sources:",
+        e
+      );
+    }
     const requestedSourceId = (() => {
       try {
         const u = new URL(request.url);
@@ -131,20 +144,20 @@ export async function POST(request: NextRequest) {
     const bodyBackfill = (body as any)?.backfill === true;
 
     const minIntervalSec = parseInt(
-      process.env.MONITOR_MIN_INTERVAL_SECONDS || "60",
+      process.env.MONITOR_MIN_INTERVAL_SECONDS || String(1 * 60 * 60),
       10
     );
     const maxParallel = parseInt(process.env.MONITOR_MAX_PARALLEL || "4", 10);
     const maxIntervalSec = parseInt(
-      process.env.MONITOR_MAX_INTERVAL_SECONDS || "900",
+      process.env.MONITOR_MAX_INTERVAL_SECONDS || String(6 * 60 * 60),
       10
     );
 
     // Find all active sources (no overrides read, to avoid schema issues)
     const sourcesRes = await db.query(
       requestedSourceId
-        ? `SELECT id, url FROM sources WHERE id = $1 AND status = 'active'`
-        : `SELECT id, url FROM sources WHERE status = 'active' ORDER BY updated_at DESC LIMIT 200`,
+        ? `SELECT id, url, interval_seconds, disable_backoff FROM sources WHERE id = $1 AND status = 'active'`
+        : `SELECT id, url, interval_seconds, disable_backoff FROM sources WHERE status = 'active' ORDER BY updated_at DESC LIMIT 200`,
       requestedSourceId ? [requestedSourceId] : []
     );
 
@@ -158,9 +171,20 @@ export async function POST(request: NextRequest) {
     const skipped: Array<{ sourceId: number; reason: string }> = [];
     let startedCount = 0;
 
-    for (const row of sourcesRes.rows as Array<{ id: number; url: string }>) {
+    for (const row of sourcesRes.rows as Array<{
+      id: number;
+      url: string;
+      interval_seconds?: number | null;
+      disable_backoff?: boolean;
+    }>) {
       const sourceId = row.id;
       const url = row.url;
+      const overrideIntervalSec =
+        typeof row.interval_seconds === "number" &&
+        !Number.isNaN(row.interval_seconds)
+          ? Math.max(10, row.interval_seconds as number)
+          : null;
+      const backoffDisabled = Boolean(row.disable_backoff);
 
       // Skip if currently running/paused (cast enum to text; avoid LOWER on enum)
       const activeRun = await db.query(
@@ -205,10 +229,13 @@ export async function POST(request: NextRequest) {
           if (c && Number(c.uploaded) === 0) zeroUploadCount += 1;
         } catch {}
       }
-      const backoffMult = Math.pow(2, errorCount) * (1 + zeroUploadCount);
+      const baseIntervalSec = overrideIntervalSec ?? minIntervalSec;
+      const backoffMult = backoffDisabled
+        ? 1
+        : Math.pow(2, errorCount) * (1 + zeroUploadCount);
       let dynamicIntervalSec = Math.min(
         maxIntervalSec,
-        Math.max(minIntervalSec, Math.floor(minIntervalSec * backoffMult))
+        Math.max(baseIntervalSec, Math.floor(baseIntervalSec * backoffMult))
       );
       if (lastCompletedAt && !(backfill || bodyBackfill)) {
         const elapsedSec =
@@ -290,7 +317,7 @@ export async function POST(request: NextRequest) {
     console.error("[monitor] Caught error:", error);
     console.error("[monitor] Error type:", typeof error);
     console.error("[monitor] Error constructor:", error?.constructor?.name);
-    
+
     let message: string;
     if (error instanceof Error) {
       message = `${error.name}: ${error.message}`;
@@ -300,7 +327,7 @@ export async function POST(request: NextRequest) {
     } else {
       message = `Unknown error: ${String(error)}`;
     }
-    
+
     console.error("[monitor] Returning error response:", message);
     return NextResponse.json(
       { success: false, error: message },

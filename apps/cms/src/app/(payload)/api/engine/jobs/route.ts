@@ -53,7 +53,7 @@ export async function GET() {
 
         // Compute nextRun using source overrides when possible
         const envMin = parseInt(
-          process.env.MONITOR_MIN_INTERVAL_SECONDS || "60",
+          process.env.MONITOR_MIN_INTERVAL_SECONDS || String(1 * 60 * 60),
           10
         );
         const overrideInterval =
