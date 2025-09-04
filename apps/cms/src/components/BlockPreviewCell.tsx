@@ -11,21 +11,18 @@ export default function BlockPreviewCell({ rowData }: Props) {
   const r2Key: string | undefined =
     rowData?.r2_key || rowData?.r2Key || rowData?.r2 || undefined;
 
-  // Debug logging
-  console.log("BlockPreviewCell rowData:", {
-    id: rowData?.id,
-    r2_key: rowData?.r2_key,
-    r2Key: rowData?.r2Key,
-    r2: rowData?.r2,
-    thumbnail_url: rowData?.thumbnail_url,
-    image_url: rowData?.image_url,
-    og_image_url: rowData?.og_image_url,
-    title: rowData?.title
-  });
-
   const [src, setSrc] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [debugInfo, setDebugInfo] = useState<string>("");
+
+  // Debug: Log the first few characters of each potential field
+  const debugData = {
+    id: rowData?.id,
+    r2_key: r2Key ? `${r2Key.substring(0, 30)}...` : "null",
+    thumb: rowData?.thumbnail_url ? `${rowData.thumbnail_url.substring(0, 30)}...` : "null",
+    img: rowData?.image_url ? `${rowData.image_url.substring(0, 30)}...` : "null",
+    og: rowData?.og_image_url ? `${rowData.og_image_url.substring(0, 30)}...` : "null",
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -133,9 +130,16 @@ export default function BlockPreviewCell({ rowData }: Props) {
           }}
         />
       ) : (
-        <div className="text-center">
+        <div className="text-center p-1">
           <span className="text-[8px] text-gray-400 block">No preview</span>
           <span className="text-[6px] text-gray-500 block">{debugInfo}</span>
+          <div className="text-[5px] text-gray-400 mt-1">
+            <div>ID: {debugData.id}</div>
+            <div>R2: {debugData.r2_key}</div>
+            <div>T: {debugData.thumb}</div>
+            <div>I: {debugData.img}</div>
+            <div>O: {debugData.og}</div>
+          </div>
         </div>
       )}
     </div>
