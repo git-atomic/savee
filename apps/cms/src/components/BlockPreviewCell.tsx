@@ -11,61 +11,59 @@ export default function BlockPreviewCell({ rowData }: Props) {
   const r2Key: string | undefined =
     rowData?.r2_key || rowData?.r2Key || rowData?.r2 || undefined;
 
-  const [src, setSrc] = useState<string | undefined>(() => {
-    // Start with non-R2 URLs immediately for faster rendering
-    return (
-      rowData?.thumbnail_url || rowData?.image_url || rowData?.og_image_url || ""
-    );
-  });
-
-  const [loading, setLoading] = useState(false);
+  const [src, setSrc] = useState<string | undefined>();
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     
-    async function presign() {
-      if (!r2Key || typeof r2Key !== "string") return;
+    async function loadImage() {
+      if (cancelled) return;
       
-      setLoading(true);
-      try {
-        const cleanKey = r2Key.replace(/\/+/g, "/");
-        const res = await fetch(
-          `/api/r2/presign?mode=json&key=${encodeURIComponent(cleanKey)}`,
-          { 
-            method: "GET",
-            headers: { "Content-Type": "application/json" }
+      // PRIORITY 1: Try R2 first if we have a key
+      if (r2Key && typeof r2Key === "string") {
+        try {
+          const cleanKey = r2Key.replace(/\/+/g, "/");
+          const res = await fetch(
+            `/api/r2/presign?mode=json&key=${encodeURIComponent(cleanKey)}`,
+            { 
+              method: "GET",
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+          
+          if (res.ok) {
+            const data = await res.json();
+            if (!cancelled && data?.success && data?.url) {
+              setSrc(data.url);
+              setLoading(false);
+              return; // Success! Use R2 URL
+            }
           }
-        );
+        } catch (error) {
+          console.warn("R2 presign failed:", error);
+        }
+      }
+      
+      // FALLBACK: Use original Savee URLs only if R2 fails or doesn't exist
+      if (!cancelled) {
+        const fallbackUrl = 
+          rowData?.thumbnail_url || 
+          rowData?.image_url || 
+          rowData?.og_image_url || 
+          "";
         
-        if (!res.ok) {
-          console.warn(`Presign failed: ${res.status} ${res.statusText}`);
-          return;
-        }
-        
-        const data = await res.json();
-        if (!cancelled && data?.success && data?.url) {
-          setSrc(data.url);
-        } else if (!cancelled && data?.error) {
-          console.warn("Presign error:", data.error);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.warn("Presign fetch error:", error);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        setSrc(fallbackUrl);
+        setLoading(false);
       }
     }
 
-    // Only try presign if we have an R2 key
-    if (r2Key) {
-      presign();
-    }
+    loadImage();
 
     return () => {
       cancelled = true;
     };
-  }, [r2Key]);
+  }, [r2Key, rowData?.thumbnail_url, rowData?.image_url, rowData?.og_image_url]);
 
   const isVideo = Boolean(rowData?.video_url) && !rowData?.thumbnail_url;
 
@@ -88,12 +86,13 @@ export default function BlockPreviewCell({ rowData }: Props) {
           referrerPolicy="no-referrer"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            // If R2 image fails, try falling back to original URLs
+            // If current image fails, try falling back to original Savee URLs
             const fallback = 
               rowData?.thumbnail_url || 
               rowData?.image_url || 
               rowData?.og_image_url;
-            if (fallback && target.src !== fallback) {
+            if (fallback && target.src !== fallback && !target.src.includes('savee')) {
+              console.warn("R2 image failed, falling back to Savee URL:", fallback);
               target.src = fallback;
             }
           }}
