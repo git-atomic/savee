@@ -1,8 +1,7 @@
 name: Scheduled Worker Run
 
 on:
-  schedule:
-    - cron: "*/15 * * * *" # every 15 minutes
+  # Manual-only worker. The scheduled, production scheduler is Engine Monitor (monitor.yml).
   workflow_dispatch:
     inputs:
       max_items:
@@ -26,6 +25,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: apps/worker/requirements.txt
 
       - name: Install Python dependencies
         working-directory: apps/worker
@@ -36,6 +37,13 @@ jobs:
       - name: Install Playwright browsers (with system deps)
         run: |
           python -m playwright install --with-deps chromium
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('apps/worker/requirements.txt') }}-v1
+          restore-keys: ${{ runner.os }}-playwright-
 
       - name: Write Savee cookies to file
         run: |
@@ -53,8 +61,38 @@ jobs:
             echo "No cookies provided. Set COOKIES_JSON or COOKIES_URL or COOKIES_JSON_MINIFIED secrets.";
             exit 1;
           fi
-          echo "Validating cookies JSON via Python";
-          python -c "import json; json.load(open('apps/worker/savee_cookies.json')); print('Cookies JSON OK')"
+          echo "Validating/normalizing cookies JSON via Python";
+          python - <<'PY'
+import json, sys, re, ast
+p = 'apps/worker/savee_cookies.json'
+raw = open(p, 'r', encoding='utf-8').read()
+
+def write_ok(d):
+    open(p, 'w', encoding='utf-8').write(json.dumps(d))
+    print('Cookies JSON OK')
+
+try:
+    d = json.loads(raw)
+    write_ok(d)
+    sys.exit(0)
+except Exception:
+    pass
+
+try:
+    d = ast.literal_eval(raw)
+    write_ok(d)
+    sys.exit(0)
+except Exception:
+    pass
+
+fixed = re.sub(r'([,{]\s*)([A-Za-z0-9_\-]+)\s*:', r'\1"\2":', raw)
+fixed = fixed.replace("'", '"')
+try:
+    d = json.loads(fixed)
+    write_ok(d)
+except Exception:
+    print('Warning: Cookies JSON could not be normalized; using raw content')
+PY
 
       - name: Run one scrape cycle
         env:
