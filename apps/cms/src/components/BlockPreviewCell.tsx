@@ -64,7 +64,8 @@ export default function BlockPreviewCell({ rowData }: Props) {
             const posterKey = `${m[1]}/poster_${m[2]}.jpg`;
             try {
               // Prefer proxy mode to keep visualcms.vercel.app origin
-              const proxied = `/api/r2/presign?mode=proxy&key=${encodeURIComponent(posterKey)}`;
+              const fallback = rowData?.thumbnail_url || rowData?.og_image_url || rowData?.image_url || "";
+              const proxied = `/api/r2/presign?mode=proxy&key=${encodeURIComponent(posterKey)}${fallback ? `&fallback=${encodeURIComponent(fallback)}` : ''}`;
               const res = await fetch(proxied, { method: 'GET' });
               if (res.ok) {
                 setSrc(proxied);
@@ -99,7 +100,8 @@ export default function BlockPreviewCell({ rowData }: Props) {
         try {
           const imgKey = deriveImageVariantKey(r2Key);
           const cleanKey = imgKey.replace(/\/+/g, "/");
-          const proxied = `/api/r2/presign?mode=proxy&key=${encodeURIComponent(cleanKey)}`;
+          const fallbackImg = rowData?.thumbnail_url || rowData?.image_url || rowData?.og_image_url || "";
+          const proxied = `/api/r2/presign?mode=proxy&key=${encodeURIComponent(cleanKey)}${fallbackImg ? `&fallback=${encodeURIComponent(fallbackImg)}` : ''}`;
           // Try proxy first (keeps our domain)
           const resProxy = await fetch(proxied, { method: 'GET' });
           if (resProxy.ok) {
