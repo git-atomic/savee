@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "*/2 * * * *" # every 2 minutes
   workflow_dispatch:
+    inputs:
+      sourceId:
+        description: "Optional sourceId to run immediately"
+        required: false
+        default: ""
+      backfill:
+        description: "Run monitor with ?backfill=true"
+        required: false
+        default: "false"
   repository_dispatch:
     types: [run_monitor]
   push:
@@ -71,7 +80,7 @@ try:\n d=json.loads(fixed); write(d)\nexcept Exception:\n pass" || true
           MONITOR_URL: ${{ secrets.MONITOR_URL }}
           ENGINE_MONITOR_TOKEN: ${{ secrets.ENGINE_MONITOR_TOKEN }}
           BACKFILL: ${{ github.event.inputs.backfill }}
-          SOURCE_ID: ${{ github.event.client_payload.sourceId }}
+          SOURCE_ID: ${{ github.event.inputs.sourceId || github.event.client_payload.sourceId }}
           SEED_URL: ${{ secrets.SEED_URL }}
         run: |
           # Normalize provided URLs to avoid trailing /admin or / paths
