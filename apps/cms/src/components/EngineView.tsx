@@ -307,7 +307,8 @@ export default function EngineView() {
         fetchJobs();
         alert("Job URL updated and restarted successfully.");
       } else {
-        alert("Failed to update job URL.");
+        const err = await resp.json().catch(() => ({}));
+        alert(`Failed to update job URL${err?.error ? `: ${err.error}` : ""}`);
       }
     } catch (e) {
       console.error("Edit job error:", e);

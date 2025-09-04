@@ -246,15 +246,22 @@ export async function PATCH(
 ) {
   try {
     const { jobId } = await params;
-    const { url } = await request.json();
+    let url: string | undefined;
+    try {
+      const body = await request.json();
+      url = body?.url;
+    } catch {
+      url = undefined;
+    }
     const payload = await getPayload({ config });
 
     // Update the source
-    await payload.update({
-      collection: "sources",
-      id: jobId,
-      data: { url },
-    });
+    const data: any = {};
+    if (typeof url === 'string' && url.trim()) data.url = url.trim();
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ success: false, error: "No changes provided" }, { status: 400 });
+    }
+    await payload.update({ collection: "sources", id: jobId, data });
 
     // Note: maxItems is typically stored per run, not per source
 
