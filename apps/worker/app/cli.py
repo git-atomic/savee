@@ -357,8 +357,9 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
                 profile_data['display_name'] = title.replace(" - Savee", "").strip()
         
         # Extract profile image URL with strong preference for real avatars CDN
-        avatar_cdn = re.search(r'https?://[^"\']*savee-cdn\.com/avatars/[^"\']+', html_content, re.IGNORECASE)
-        if avatar_cdn:
+        # Prefer explicit CDN avatar only if not a default-avatar and matches user path
+        avatar_cdn = re.search(r'https?://[^"\']*savee-cdn\.com/(?:img/)?avatars/[^"\']+', html_content, re.IGNORECASE)
+        if avatar_cdn and ('default-avatar' not in avatar_cdn.group(0)):
             profile_data['profile_image_url'] = avatar_cdn.group(0)
         else:
             # Try avatar container block (allow default avatars)
@@ -367,12 +368,12 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
                 html_content,
                 re.IGNORECASE
             )
-            if container_img:
+            if container_img and ('default-avatar' not in container_img.group(1)):
                 profile_data['profile_image_url'] = container_img.group(1)
             else:
                 # Try og:image (allow defaults)
                 profile_img_match = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html_content, re.IGNORECASE)
-                if profile_img_match:
+                if profile_img_match and ('default-avatar' not in profile_img_match.group(1)):
                     profile_data['profile_image_url'] = profile_img_match.group(1)
                 else:
                     # Fallback: any bg-image-loading img (allow defaults)
@@ -381,7 +382,7 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
                         html_content,
                         re.IGNORECASE
                     )
-                    if any_img:
+                    if any_img and ('default-avatar' not in any_img.group(1)):
                         profile_data['profile_image_url'] = any_img.group(1)
 
         # Prefer DOM counters in the header toolbar (title="2,133 Saves", etc.)

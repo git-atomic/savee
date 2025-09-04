@@ -10,14 +10,21 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const key = searchParams.get("key");
-    if (!key) return NextResponse.json({ success: false, error: "key required" }, { status: 400 });
+    if (!key)
+      return NextResponse.json(
+        { success: false, error: "key required" },
+        { status: 400 }
+      );
 
     const endpoint = process.env.R2_ENDPOINT_URL;
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
     const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
     const bucket = process.env.R2_BUCKET_NAME;
     if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
-      return NextResponse.json({ success: false, error: "R2 env missing" }, { status: 500 });
+      return NextResponse.json(
+        { success: false, error: "R2 env missing" },
+        { status: 500 }
+      );
     }
 
     const client = new S3Client({
@@ -27,10 +34,15 @@ export async function GET(req: NextRequest) {
     });
     const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
     const url = await getSignedUrl(client, cmd, { expiresIn: 300 }); // 5 min
+    const mode = searchParams.get("mode") || "json";
+    if (mode === "redirect") {
+      return NextResponse.redirect(url);
+    }
     return NextResponse.json({ success: true, url });
   } catch (e) {
-    return NextResponse.json({ success: false, error: String(e) }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: String(e) },
+      { status: 500 }
+    );
   }
 }
-
-
