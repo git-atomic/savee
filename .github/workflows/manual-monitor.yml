@@ -51,22 +51,12 @@ jobs:
         run: |
           if [ -n "$COOKIES_JSON" ]; then
             printf "%s" "$COOKIES_JSON" > apps/worker/savee_cookies.json
-            python - <<'PY' || true
-import json, sys
-p='apps/worker/savee_cookies.json'
-raw=open(p,'r',encoding='utf-8').read()
-try:
-    json.loads(raw)
-    sys.exit(0)
-except Exception:
-    try:
-        fixed=raw.replace("'", '"')
-        json.loads(fixed)
-        open(p,'w',encoding='utf-8').write(fixed)
-    except Exception:
-        pass
-    sys.exit(0)
-PY
+            python -c "import json,sys; p='apps/worker/savee_cookies.json'; raw=open(p,'r',encoding='utf-8').read();\
+try:\n json.loads(raw)\n\
+except Exception:\n\
+    fixed=raw.replace(\"'\", '\"\');\
+    import json as _j;\
+    try:\n        _j.loads(fixed); open(p,'w',encoding='utf-8').write(fixed)\n    except Exception: pass" || true
           fi
 
       - name: Call /api/engine/monitor (manual trigger)
