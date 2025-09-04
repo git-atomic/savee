@@ -214,11 +214,31 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
     from datetime import datetime, timezone
     import re
     
-    # Check if user already exists
-    result = await session.execute(
-        select(SaveeUser).where(SaveeUser.username == username)
-    )
-    existing_user = result.scalar_one_or_none()
+    # Ensure schema column exists BEFORE any ORM SELECT to avoid UndefinedColumnError
+    try:
+        await session.execute(text("ALTER TABLE savee_users ADD COLUMN IF NOT EXISTS avatar_r2_key VARCHAR(500)"))
+    except Exception:
+        pass
+
+    # Check if user already exists (retry once on failure and rollback aborted tx)
+    try:
+        result = await session.execute(
+            select(SaveeUser).where(SaveeUser.username == username)
+        )
+        existing_user = result.scalar_one_or_none()
+    except Exception:
+        try:
+            await session.rollback()
+        except Exception:
+            pass
+        try:
+            await session.execute(text("ALTER TABLE savee_users ADD COLUMN IF NOT EXISTS avatar_r2_key VARCHAR(500)"))
+        except Exception:
+            pass
+        result = await session.execute(
+            select(SaveeUser).where(SaveeUser.username == username)
+        )
+        existing_user = result.scalar_one_or_none()
     
     # Scrape user profile data
     try:
