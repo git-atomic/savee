@@ -8,13 +8,24 @@ type Props = {
 
 export default function SaveeUserAvatarCell({ rowData }: Props) {
   const username: string | undefined = rowData?.username;
+  // Inline neutral placeholder to avoid external defaults
+  const DEFAULT_AVATAR =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
+        '<circle cx="12" cy="8" r="4" fill="#E5E7EB"/>' +
+        '<path d="M4 21c0-4.2 3.8-7 8-7s8 2.8 8 7" fill="#E5E7EB"/>' +
+      "</svg>"
+    );
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() => {
     const r2 = rowData?.avatar_r2_key || rowData?.avatarR2Key;
     if (r2 && typeof r2 === "string") {
       // Use proxy to keep domain, mirror if missing
       return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`;
     }
-    return rowData?.profile_image_url || rowData?.profileImageUrl;
+    const direct = rowData?.profile_image_url || rowData?.profileImageUrl;
+    if (typeof direct === "string" && /default-avatar/i.test(direct)) return DEFAULT_AVATAR;
+    return direct;
   });
 
   useEffect(() => {
@@ -29,7 +40,12 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
             return;
           }
           if (doc.profile_image_url || doc.profileImageUrl) {
-            setAvatarUrl(doc.profile_image_url || doc.profileImageUrl);
+            const direct = doc.profile_image_url || doc.profileImageUrl;
+            if (typeof direct === "string" && /default-avatar/i.test(direct)) {
+              setAvatarUrl(DEFAULT_AVATAR);
+            } else {
+              setAvatarUrl(direct);
+            }
           }
         })
         .catch(() => {});
@@ -51,7 +67,7 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
         referrerPolicy="no-referrer"
         onError={(e) => {
           const target = e.target as HTMLImageElement;
-          target.src = "https://st.savee-cdn.com/img/default-avatar-1.jpg";
+          target.src = DEFAULT_AVATAR;
         }}
       />
     </div>
