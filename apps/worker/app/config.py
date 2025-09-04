@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # Payload CMS (optional; worker operates without Payload)
     PAYLOAD_API_URL: Optional[str] = Field(default=None, description="Payload CMS API URL (optional)")
     PAYLOAD_API_KEY: Optional[str] = Field(default=None, description="Payload CMS API key (optional)")
+    CMS_URL: Optional[str] = Field(default=None, description="Base URL of CMS (for logs endpoint)")
+    ENGINE_MONITOR_TOKEN: Optional[str] = Field(default=None, description="Bearer token for monitor/logs auth")
     
     # Scraping
     SCRAPER_USER_AGENT: str = Field(

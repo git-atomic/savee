@@ -166,20 +166,27 @@ def _detect_source_type(url: str) -> SourceTypeEnum:
 async def _send_simple_log_to_cms(run_id: int, log_data: dict):
     """Send log entry to CMS API for real-time display"""
     try:
-        cms_url = "http://localhost:3000"  # CMS URL
-        
-        async with aiohttp.ClientSession() as session:
+        cms_url = getattr(settings, 'CMS_URL', None) or os.getenv('CMS_URL') or ""
+        if not cms_url:
+            return
+        token = getattr(settings, 'ENGINE_MONITOR_TOKEN', None) or os.getenv('ENGINE_MONITOR_TOKEN')
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        async with aiohttp.ClientSession(headers=headers) as session:
             async with session.post(
-                f"{cms_url}/api/engine/logs",
+                f"{cms_url.rstrip('/')}/api/engine/logs",
                 json={
-                    "jobId": str(run_id),  # Use runId as jobId for log storage
-                    "log": log_data
+                    "jobId": str(run_id),
+                    "log": log_data,
                 },
-                timeout=aiohttp.ClientTimeout(total=5)
-            ) as response:
-                pass  # Don't log response to avoid noise
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as _:
+                pass
     except Exception:
-        pass  # Fail silently if CMS is unavailable
+        # Fail silently if CMS is unavailable
+        pass
 
 def _generate_r2_key(url: str, external_id: str) -> str:
     """Generate organized R2 key for blocks based on source type and URL.
