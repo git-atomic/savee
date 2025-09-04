@@ -358,8 +358,12 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
         
         # Extract profile image URL with strong preference for real avatars CDN
         # Prefer explicit CDN avatar only if not a default-avatar and matches user path
+        # Prefer 'dr.savee-cdn.com/avatars' first (custom avatars), then general avatars path
+        avatar_dr = re.search(r'https?://dr\.savee-cdn\.com/avatars/[^"\']+', html_content, re.IGNORECASE)
         avatar_cdn = re.search(r'https?://[^"\']*savee-cdn\.com/(?:img/)?avatars/[^"\']+', html_content, re.IGNORECASE)
-        if avatar_cdn and ('default-avatar' not in avatar_cdn.group(0)):
+        if avatar_dr and ('default-avatar' not in avatar_dr.group(0)):
+            profile_data['profile_image_url'] = avatar_dr.group(0)
+        elif avatar_cdn and ('default-avatar' not in avatar_cdn.group(0)):
             profile_data['profile_image_url'] = avatar_cdn.group(0)
         else:
             # Try avatar container block (allow default avatars)

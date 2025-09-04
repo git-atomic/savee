@@ -23,7 +23,11 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
       // Use proxy to keep domain, mirror if missing
       return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`;
     }
-    const direct = rowData?.profile_image_url || rowData?.profileImageUrl;
+    // Prefer dr.savee-cdn.com avatars if present (non-default)
+    const dr = rowData?.profile_image_url || rowData?.profileImageUrl;
+    const direct = typeof dr === "string" && /dr\.savee-cdn\.com\/avatars\//i.test(dr)
+      ? dr
+      : (rowData?.profile_image_url || rowData?.profileImageUrl);
     if (typeof direct === "string" && /default-avatar/i.test(direct)) return DEFAULT_AVATAR;
     return direct;
   });
