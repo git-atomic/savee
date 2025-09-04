@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 type Props = {
   cellData?: any;
@@ -8,17 +8,49 @@ type Props = {
 };
 
 export default function BlockPreviewCell({ rowData }: Props) {
-  const r2Key: string | undefined = rowData?.r2_key || rowData?.r2Key || rowData?.r2 || undefined;
-  const url: string = r2Key
-    ? `/api/r2/presign?mode=redirect&key=${encodeURIComponent(r2Key.replace(/\/+/g, "/"))}`
-    : rowData?.thumbnail_url ||
-      rowData?.image_url ||
-      rowData?.og_image_url ||
-      "";
+  const r2Key: string | undefined =
+    rowData?.r2_key || rowData?.r2Key || rowData?.r2 || undefined;
 
-  if (!url) return <span className="text-xs text-gray-400">No preview</span>;
+  const [src, setSrc] = useState<string | undefined>(() => {
+    if (r2Key && typeof r2Key === "string") return undefined; // we'll presign below
+    return (
+      rowData?.thumbnail_url || rowData?.image_url || rowData?.og_image_url || ""
+    );
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function presign() {
+      if (!r2Key) return;
+      try {
+        const res = await fetch(
+          `/api/r2/presign?mode=json&key=${encodeURIComponent(
+            r2Key.replace(/\\/+/g, "/")
+          )}`
+        );
+        const data = await res.json().catch(() => null);
+        if (!cancelled && data?.success && data?.url) setSrc(data.url);
+      } catch (_) {
+        // fall back to non-R2 URLs if present
+        if (!cancelled)
+          setSrc(
+            rowData?.thumbnail_url ||
+              rowData?.image_url ||
+              rowData?.og_image_url ||
+              ""
+          );
+      }
+    }
+    presign();
+    return () => {
+      cancelled = true;
+    };
+  }, [r2Key, rowData?.thumbnail_url, rowData?.image_url, rowData?.og_image_url]);
 
   const isVideo = Boolean(rowData?.video_url) && !rowData?.thumbnail_url;
+
+  if (!src && !isVideo)
+    return <span className="text-xs text-gray-400">No preview</span>;
 
   return (
     <div className="w-16 h-16 rounded overflow-hidden border border-gray-200 bg-gray-50 flex items-center justify-center">
@@ -27,7 +59,7 @@ export default function BlockPreviewCell({ rowData }: Props) {
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={url}
+          src={src}
           alt={rowData?.title || "preview"}
           className="object-cover w-full h-full"
           referrerPolicy="no-referrer"
