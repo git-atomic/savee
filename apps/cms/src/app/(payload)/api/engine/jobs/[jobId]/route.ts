@@ -93,7 +93,7 @@ export async function DELETE(
       try {
         // Get all R2 keys for this source to delete from R2
         const blocksToDelete = await db.query(
-          `SELECT r2_key, image_url, video_url FROM blocks WHERE source_id = $1`,
+          `SELECT r2_key FROM blocks WHERE source_id = $1`,
           [sourceId]
         );
 
@@ -108,11 +108,13 @@ export async function DELETE(
             const baseKey = row.r2_key as string | null;
             if (!baseKey) continue;
             r2Keys.push(baseKey);
-            const slash = baseKey.lastIndexOf('/');
-            const dot = baseKey.lastIndexOf('.');
-            if (slash > 0 and dot > slash) {
+            const slash = baseKey.lastIndexOf("/");
+            const dot = baseKey.lastIndexOf(".");
+            if (slash > 0 && dot > slash) {
               const basePath = baseKey.substring(0, slash + 1);
-              const core = baseKey.substring(slash + 1, dot).replace(/^original_/, '');
+              const core = baseKey
+                .substring(slash + 1, dot)
+                .replace(/^original_/, "");
               r2Keys.push(`${basePath}thumb_${core}.jpg`);
               r2Keys.push(`${basePath}small_${core}.jpg`);
               r2Keys.push(`${basePath}medium_${core}.jpg`);
@@ -165,7 +167,7 @@ export async function DELETE(
     // Delete from database if requested
     if (deleteFromDb) {
       try {
-        await db.query('BEGIN');
+        await db.query("BEGIN");
 
         // Delete user_blocks first (if not already done above)
         if (!deleteUsers) {
@@ -184,17 +186,27 @@ export async function DELETE(
         );
 
         // Delete blocks then runs then source (respect FKs)
-        const delBlocks = await db.query(`DELETE FROM blocks WHERE source_id = $1`, [sourceId]);
-        const delRuns = await db.query(`DELETE FROM runs WHERE source_id = $1`, [sourceId]);
-        const delSource = await db.query(`DELETE FROM sources WHERE id = $1`, [sourceId]);
+        const delBlocks = await db.query(
+          `DELETE FROM blocks WHERE source_id = $1`,
+          [sourceId]
+        );
+        const delRuns = await db.query(
+          `DELETE FROM runs WHERE source_id = $1`,
+          [sourceId]
+        );
+        const delSource = await db.query(`DELETE FROM sources WHERE id = $1`, [
+          sourceId,
+        ]);
 
-        await db.query('COMMIT');
+        await db.query("COMMIT");
 
         console.log(
           `Deleted source ${sourceId} (blocks=${delBlocks.rowCount}, runs=${delRuns.rowCount}, source=${delSource.rowCount})`
         );
       } catch (deleteError: unknown) {
-        try { await db.query('ROLLBACK'); } catch {}
+        try {
+          await db.query("ROLLBACK");
+        } catch {}
         console.error(`Database delete error:`, deleteError);
         throw deleteError;
       }
@@ -234,9 +246,12 @@ export async function PATCH(
 
     // Update the source
     const data: any = {};
-    if (typeof url === 'string' && url.trim()) data.url = url.trim();
+    if (typeof url === "string" && url.trim()) data.url = url.trim();
     if (Object.keys(data).length === 0) {
-      return NextResponse.json({ success: false, error: "No changes provided" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "No changes provided" },
+        { status: 400 }
+      );
     }
     await payload.update({ collection: "sources", id: jobId, data });
 
