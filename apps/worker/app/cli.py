@@ -242,9 +242,10 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                         if avatar_url:
                             from app.storage.r2 import get_storage
                             storage = await get_storage()
-                            _ = await storage.upload_avatar(username, avatar_url)
-                            # Also ensure profile_image_url is stored for CMS preview
+                            avatar_key = await storage.upload_avatar(username, avatar_url)
+                            # Keep original url for preview; also store R2 key for CMS usage
                             profile_data['profile_image_url'] = avatar_url
+                            profile_data['avatar_r2_key'] = avatar_key
                     except Exception as _avatar_err:
                         logger.debug(f"Avatar upload skipped for {username}: {_avatar_err}")
                     

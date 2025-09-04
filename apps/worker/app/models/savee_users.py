@@ -15,6 +15,7 @@ class SaveeUser(Base):
     display_name = Column(String(200), nullable=True)
     bio = Column(Text, nullable=True)
     profile_image_url = Column(String(500), nullable=True)
+    avatar_r2_key = Column(String(500), nullable=True)
     cover_image_url = Column(String(500), nullable=True)
     profile_url = Column(String(500), nullable=False)
     

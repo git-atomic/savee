@@ -8,16 +8,24 @@ type Props = {
 
 export default function SaveeUserAvatarCell({ rowData }: Props) {
   const username: string | undefined = rowData?.username;
-  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(
-    rowData?.profile_image_url || rowData?.profileImageUrl
-  );
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() => {
+    const r2 = rowData?.avatar_r2_key || rowData?.avatarR2Key;
+    if (r2 && typeof r2 === 'string') return `/api/r2/presign?key=${encodeURIComponent(r2)}`;
+    return rowData?.profile_image_url || rowData?.profileImageUrl;
+  });
 
   useEffect(() => {
     if (!avatarUrl && rowData?.id) {
       fetch(`/api/savee_users/${rowData.id}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((doc) => {
-          if (doc && (doc.profile_image_url || doc.profileImageUrl)) {
+          if (!doc) return;
+          const r2 = doc.avatar_r2_key || doc.avatarR2Key;
+          if (r2) {
+            setAvatarUrl(`/api/r2/presign?key=${encodeURIComponent(r2)}`);
+            return;
+          }
+          if (doc.profile_image_url || doc.profileImageUrl) {
             setAvatarUrl(doc.profile_image_url || doc.profileImageUrl);
           }
         })

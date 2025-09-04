@@ -70,6 +70,13 @@ export const SaveeUsers: CollectionConfig = {
       },
     },
     {
+      name: "avatar_r2_key",
+      type: "text",
+      admin: {
+        description: "R2 key for stored avatar (when available)",
+      },
+    },
+    {
       name: "cover_image_url",
       type: "text",
       admin: {
