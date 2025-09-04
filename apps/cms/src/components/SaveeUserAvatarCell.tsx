@@ -10,8 +10,10 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
   const username: string | undefined = rowData?.username;
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() => {
     const r2 = rowData?.avatar_r2_key || rowData?.avatarR2Key;
-    if (r2 && typeof r2 === "string")
-      return `/api/r2/presign?mode=redirect&key=${encodeURIComponent(r2)}`;
+    if (r2 && typeof r2 === "string") {
+      // Use proxy to keep domain, mirror if missing
+      return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`;
+    }
     return rowData?.profile_image_url || rowData?.profileImageUrl;
   });
 
@@ -23,7 +25,7 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
           if (!doc) return;
           const r2 = doc.avatar_r2_key || doc.avatarR2Key;
           if (r2) {
-            setAvatarUrl(`/api/r2/presign?mode=redirect&key=${encodeURIComponent(r2)}`);
+            setAvatarUrl(`/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`);
             return;
           }
           if (doc.profile_image_url || doc.profileImageUrl) {
