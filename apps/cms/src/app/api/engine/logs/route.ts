@@ -21,6 +21,22 @@ async function getDbConnection() {
   return (payload.db as any).pool;
 }
 
+async function ensureLogsTable(db: any) {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS job_logs (
+      id SERIAL PRIMARY KEY,
+      run_id INTEGER NOT NULL,
+      log_type VARCHAR(32) NOT NULL,
+      url TEXT NULL,
+      status VARCHAR(8) NULL,
+      message TEXT NULL,
+      timing VARCHAR(32) NULL,
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS job_logs_run_id_idx ON job_logs(run_id)`);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -34,6 +50,8 @@ export async function GET(request: NextRequest) {
     }
 
     const db = await getDbConnection();
+
+    await ensureLogsTable(db);
 
     const runCheck = await db.query(
       `SELECT id FROM runs WHERE id = $1`,
@@ -84,6 +102,7 @@ export async function POST(request: NextRequest) {
     if (!runId || !log) return new Response(null, { status: 204 });
 
     const db = await getDbConnection();
+    await ensureLogsTable(db);
     await db.query(
       `INSERT INTO job_logs (run_id, log_type, url, status, message, timing, timestamp)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
