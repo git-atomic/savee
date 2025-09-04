@@ -69,7 +69,7 @@ except Exception:
 PY
           fi
 
-      - name: Call /api/engine/monitor
+      - name: Call /api/engine/monitor (manual trigger)
         env:
           CMS_URL: ${{ secrets.CMS_URL }}
           MONITOR_URL: ${{ secrets.MONITOR_URL }}
