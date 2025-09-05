@@ -264,13 +264,27 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                     # Attempt avatar upload to R2 when image available
                     try:
                         avatar_url = profile_data.get('profile_image_url')
-                        if avatar_url:
+                        # Treat known default placeholders as non-avatars
+                        is_default = False
+                        try:
+                            if isinstance(avatar_url, str):
+                                import re as _re
+                                if _re.search(r"default-avatar", avatar_url, _re.IGNORECASE):
+                                    is_default = True
+                                if _re.search(r"st\.savee-cdn\.com/img/default-avatar-\d+\.jpg", avatar_url, _re.IGNORECASE):
+                                    is_default = True
+                        except Exception:
+                            is_default = False
+                        if avatar_url and not is_default:
                             from app.storage.r2 import get_storage
                             storage = await get_storage()
                             avatar_key = await storage.upload_avatar(username, avatar_url)
                             # Keep original url for preview; also store R2 key for CMS usage
                             profile_data['profile_image_url'] = avatar_url
                             profile_data['avatar_r2_key'] = avatar_key
+                        else:
+                            # Explicitly nullify default avatar URL to force placeholder in UI
+                            profile_data['profile_image_url'] = None
                     except Exception as _avatar_err:
                         logger.debug(f"Avatar upload skipped for {username}: {_avatar_err}")
                     
