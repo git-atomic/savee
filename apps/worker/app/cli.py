@@ -366,28 +366,9 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
         elif avatar_cdn and ('default-avatar' not in avatar_cdn.group(0)):
             profile_data['profile_image_url'] = avatar_cdn.group(0)
         else:
-            # Try avatar container block (allow default avatars)
-            container_img = re.search(
-                r'z-index-user-header-avatar[\s\S]*?<img[^>]+src=["\']([^"\']+)["\']',
-                html_content,
-                re.IGNORECASE
-            )
-            if container_img and ('default-avatar' not in container_img.group(1)):
-                profile_data['profile_image_url'] = container_img.group(1)
-            else:
-                # Try og:image (allow defaults)
-                profile_img_match = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html_content, re.IGNORECASE)
-                if profile_img_match and ('default-avatar' not in profile_img_match.group(1)):
-                    profile_data['profile_image_url'] = profile_img_match.group(1)
-                else:
-                    # Fallback: any bg-image-loading img (allow defaults)
-                    any_img = re.search(
-                        r'<img[^>]+class=["\'][^"\']*bg-image-loading[^"\']*["\'][^>]+src=["\']([^"\']+)["\']',
-                        html_content,
-                        re.IGNORECASE
-                    )
-                    if any_img and ('default-avatar' not in any_img.group(1)):
-                        profile_data['profile_image_url'] = any_img.group(1)
+            # No proven avatar found; avoid picking unrelated images (colored placeholders, covers)
+            # Leave profile_image_url unset so the CMS shows a neutral placeholder.
+            pass
 
         # Prefer DOM counters in the header toolbar (title="2,133 Saves", etc.)
         # These appear accurate and should override JSON when present
