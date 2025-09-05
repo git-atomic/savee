@@ -26,6 +26,7 @@ interface JobData {
   intervalSeconds?: number;
   disableBackoff?: boolean;
   effectiveIntervalSeconds?: number;
+  backoffMultiplier?: number;
 }
 
 interface LogEntry {
@@ -35,6 +36,15 @@ interface LogEntry {
   status: "✓" | "❌" | "⏳";
   timing?: string;
   message?: string;
+}
+
+interface EngineMetrics {
+  queued: number;
+  running: number;
+  paused: number;
+  lastSuccessAt?: string | null;
+  lastErrorAt?: string | null;
+  workerParallelism: number;
 }
 
 export default function EngineView() {
@@ -53,6 +63,7 @@ export default function EngineView() {
   const logsEndRef = useRef<Record<string, HTMLDivElement | null>>({});
   const jobsRef = useRef<JobData[]>([]); // Ref to access current jobs in intervals
   const [, setEditingJob] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<EngineMetrics | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{
     jobId: string;
     confirmUrl: string;
@@ -120,6 +131,33 @@ export default function EngineView() {
     return `${sec}s`;
   };
 
+  const renderBackoffChip = (job: JobData) => {
+    const multiplier = Math.max(1, Number(job.backoffMultiplier || 1));
+    if (multiplier <= 1) return null;
+    return (
+      <div
+        className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] whitespace-nowrap"
+        title="Backoff multiplier based on recent errors/zero-uploads"
+      >
+        x{multiplier}
+      </div>
+    );
+  };
+
+  // Countdown helpers
+  const computeDueInSeconds = (nextRun?: string) => {
+    if (!nextRun) return undefined;
+    const d = parseDate(nextRun);
+    if (!d) return undefined;
+    const diff = Math.max(0, Math.floor((d.getTime() - Date.now()) / 1000));
+    return diff;
+  };
+  const formatDueIn = (secs?: number) => {
+    if (secs === undefined) return "—";
+    if (secs === 0) return "due now";
+    return formatSeconds(secs);
+  };
+
   // Auto-detect source type from URL
   useEffect(() => {
     if (!url) return;
@@ -138,6 +176,19 @@ export default function EngineView() {
       }
     } catch (error) {
       console.error("Failed to fetch jobs:", error);
+    }
+  };
+
+  // Fetch metrics
+  const fetchMetrics = async () => {
+    try {
+      const response = await fetch("/api/engine/metrics", { cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.success) setMetrics(data as EngineMetrics);
+      }
+    } catch (error) {
+      console.error("Failed to fetch metrics:", error);
     }
   };
 
@@ -411,12 +462,14 @@ export default function EngineView() {
   // Initial fetch
   useEffect(() => {
     fetchJobs();
+    fetchMetrics();
   }, []);
 
   // Set up real-time polling - separate from jobs dependency
   useEffect(() => {
     const interval = setInterval(() => {
       fetchJobs();
+      fetchMetrics();
       // Fetch logs for expanded jobs using runId
       expandedJobs.forEach((jobId) => {
         const currentJobs = jobsRef.current; // Use ref to get current jobs
@@ -438,6 +491,17 @@ export default function EngineView() {
         <p className="text-gray-600">
           Manage and monitor your Savee.it scraping jobs
         </p>
+        {/* Metrics summary */}
+        {metrics && (
+          <div className="mt-3 flex items-center gap-3 text-xs text-gray-700">
+            <span className="px-2 py-1 rounded bg-gray-100">Queued: {metrics.queued}</span>
+            <span className="px-2 py-1 rounded bg-gray-100">Running: {metrics.running}</span>
+            {metrics.paused > 0 && (
+              <span className="px-2 py-1 rounded bg-gray-100">Paused: {metrics.paused}</span>
+            )}
+            <span className="px-2 py-1 rounded bg-gray-100">Workers: {metrics.workerParallelism}</span>
+          </div>
+        )}
       </div>
 
       {/* Add New Job Form */}
@@ -549,7 +613,13 @@ export default function EngineView() {
                       className="text-xs text-gray-500 mt-1"
                       title={`Last: ${formatDateTime(job.lastRun)}\nNext: ${formatDateTime(job.nextRun)}`}
                     >
-                      Next run: {formatDateTime(job.nextRun)}
+                      Next run: {formatDateTime(job.nextRun)}{" "}
+                      <span
+                        className="ml-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
+                        title="Countdown until next eligible run"
+                      >
+                        due in {formatDueIn(computeDueInSeconds(job.nextRun))}
+                      </span>
                     </div>
                   </div>
 
@@ -633,8 +703,19 @@ export default function EngineView() {
                         </span>
                       </div>
                       {/* Effective interval chip */}
-                      <div className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap" title="Effective interval = base interval; may stretch when Adaptive backoff is on">
-                        Effective: {formatSeconds(job.effectiveIntervalSeconds ?? (job.intervalSeconds ?? 0))}
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap"
+                          title="Effective interval = base interval; may stretch when Adaptive backoff is on"
+                        >
+                          Effective:{" "}
+                          {formatSeconds(
+                            job.effectiveIntervalSeconds ??
+                              job.intervalSeconds ??
+                              0
+                          )}
+                        </div>
+                        {renderBackoffChip(job)}
                       </div>
                       <label
                         className="flex items-center gap-1 text-xs text-gray-700"
