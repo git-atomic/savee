@@ -25,6 +25,7 @@ interface JobData {
   // New: per-job schedule
   intervalSeconds?: number;
   disableBackoff?: boolean;
+  effectiveIntervalSeconds?: number;
 }
 
 interface LogEntry {
@@ -640,21 +641,28 @@ export default function EngineView() {
                     </button>
                     {/* Inline schedule controls */}
                     <div className="flex items-center gap-2 ml-2">
-                      <input
-                        type="number"
-                        min={10}
-                        placeholder="Interval (s)"
-                        defaultValue={(job.intervalSeconds ?? job.effectiveIntervalSeconds ?? undefined) as any}
-                        onBlur={(e) =>
-                          updateScheduleInline(
-                            job.id,
-                            e.currentTarget.value,
-                            undefined
-                          )
-                        }
-                        className="w-28 px-2 py-1 border border-gray-300 rounded text-sm"
-                        title="Override interval in seconds (blank=global)"
-                      />
+                      <div className="flex flex-col">
+                        <input
+                          type="number"
+                          min={10}
+                          placeholder="Interval (s)"
+                          defaultValue={
+                            (job.intervalSeconds ??
+                              job.effectiveIntervalSeconds ??
+                              undefined) as any
+                          }
+                          onBlur={(e) =>
+                            updateScheduleInline(
+                              job.id,
+                              e.currentTarget.value,
+                              undefined
+                            )
+                          }
+                          className="w-28 px-2 py-1 border border-gray-300 rounded text-sm"
+                          title="Override interval in seconds (blank=global)"
+                        />
+                        <span className="text-[10px] text-gray-500">seconds (base)</span>
+                      </div>
                       <label
                         className="flex items-center gap-1 text-xs text-gray-700"
                         title="Adaptive backoff reduces frequency after errors/zero-uploads"
