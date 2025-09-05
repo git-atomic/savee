@@ -60,7 +60,7 @@ export default function EngineView() {
     deleteFromR2: boolean;
     deleteUsers: boolean;
   } | null>(null);
-  
+
   // Safe date helpers
   const parseDate = (value?: string | number | Date | null) => {
     if (!value) return null;
@@ -104,6 +104,20 @@ export default function EngineView() {
     } catch {
       return "—";
     }
+  };
+
+  // Format seconds to a compact human string (e.g., 90 -> 1m 30s, 3600 -> 1h)
+  const formatSeconds = (total?: number) => {
+    const s = Number(total || 0);
+    if (!Number.isFinite(s) || s <= 0) return "—";
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    if (h > 0 && m === 0 && sec === 0) return `${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0 && sec === 0) return `${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
   };
 
   // Auto-detect source type from URL
@@ -593,7 +607,7 @@ export default function EngineView() {
                       Info
                     </button>
                     {/* Inline schedule controls */}
-                    <div className="flex items-center gap-2 ml-2">
+                    <div className="flex items-center gap-3 ml-2">
                       <div className="flex flex-col">
                         <input
                           type="number"
@@ -617,6 +631,10 @@ export default function EngineView() {
                         <span className="text-[10px] text-gray-500">
                           seconds (base)
                         </span>
+                      </div>
+                      {/* Effective interval chip */}
+                      <div className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap" title="Effective interval = base interval; may stretch when Adaptive backoff is on">
+                        Effective: {formatSeconds(job.effectiveIntervalSeconds ?? (job.intervalSeconds ?? 0))}
                       </div>
                       <label
                         className="flex items-center gap-1 text-xs text-gray-700"
