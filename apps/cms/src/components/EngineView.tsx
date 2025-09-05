@@ -60,12 +60,7 @@ export default function EngineView() {
     deleteFromR2: boolean;
     deleteUsers: boolean;
   } | null>(null);
-  const [scheduleEdit, setScheduleEdit] = useState<{
-    jobId: string;
-    intervalSeconds: string;
-    disableBackoff: boolean;
-  } | null>(null);
-
+  
   // Safe date helpers
   const parseDate = (value?: string | number | Date | null) => {
     if (!value) return null;
@@ -328,34 +323,7 @@ export default function EngineView() {
   };
 
   // Save schedule config
-  const saveSchedule = async () => {
-    if (!scheduleEdit) return;
-    const { jobId, intervalSeconds, disableBackoff } = scheduleEdit;
-    const payload: any = {};
-    const parsed = intervalSeconds.trim()
-      ? parseInt(intervalSeconds.trim())
-      : undefined;
-    if (typeof parsed === "number" && !Number.isNaN(parsed))
-      payload.intervalSeconds = parsed;
-    payload.disableBackoff = disableBackoff;
-    try {
-      const resp = await fetch(`/api/engine/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (resp.ok) {
-        setScheduleEdit(null);
-        fetchJobs();
-      } else {
-        const err = await resp.json().catch(() => ({}));
-        alert(`Failed to save schedule${err?.error ? `: ${err.error}` : ""}`);
-      }
-    } catch (e) {
-      console.error("Save schedule error:", e);
-      alert("Failed to save schedule");
-    }
-  };
+  // (removed legacy modal; inline controls handle schedule updates)
 
   // Inline schedule updater (Engine page inputs)
   const updateScheduleInline = async (
@@ -616,23 +584,6 @@ export default function EngineView() {
                     >
                       Edit
                     </button>
-
-                    {/* Schedule Button (redundant with inline controls) */}
-                    {false && (
-                      <button
-                        onClick={() =>
-                          setScheduleEdit({
-                            jobId: job.id,
-                            intervalSeconds: "",
-                            disableBackoff: false,
-                          })
-                        }
-                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-sm hover:bg-indigo-200"
-                        title="Configure per-job schedule"
-                      >
-                        Schedule
-                      </button>
-                    )}
 
                     {/* Info Button */}
                     <button
@@ -1024,64 +975,7 @@ export default function EngineView() {
       )}
 
       {/* Schedule Edit Modal */}
-      {scheduleEdit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Schedule Settings</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Interval (seconds)
-                </label>
-                <input
-                  type="number"
-                  min={10}
-                  placeholder="Leave blank to use global setting"
-                  value={scheduleEdit.intervalSeconds}
-                  onChange={(e) =>
-                    setScheduleEdit({
-                      ...scheduleEdit,
-                      intervalSeconds: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={scheduleEdit.disableBackoff}
-                  onChange={(e) =>
-                    setScheduleEdit({
-                      ...scheduleEdit,
-                      disableBackoff: e.target.checked,
-                    })
-                  }
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span className="ml-2 text-sm text-gray-700">
-                  Disable adaptive backoff
-                </span>
-              </label>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={saveSchedule}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md"
-              >
-                Save
-              </button>
-              <button
-                onClick={() => setScheduleEdit(null)}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* (removed legacy schedule modal) */}
     </div>
   );
 }
