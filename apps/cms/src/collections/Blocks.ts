@@ -16,7 +16,14 @@ export const Blocks: CollectionConfig = {
       "createdAt",
     ],
     description: "Individual scraped content blocks from Savee.it",
-    listSearchableFields: ["title", "url", "og_title", "og_description", "origin"],
+    listSearchableFields: [
+      "title",
+      "url",
+      "og_title",
+      "og_description",
+      "origin_text",
+      "saved_by_usernames",
+    ],
   },
   access: {
     read: () => true,
@@ -59,6 +66,15 @@ export const Blocks: CollectionConfig = {
         },
       },
     },
+    // Persisted origin (filterable/searchable)
+    {
+      name: "origin_text",
+      type: "text",
+      label: "Savee User / Origin (text)",
+      admin: {
+        description: "Persisted origin for filters (home | pop | username)",
+      },
+    },
     // External Reference
     {
       name: "external_id", // Match database column name
@@ -68,6 +84,15 @@ export const Blocks: CollectionConfig = {
       label: "External ID",
       admin: {
         description: "Unique identifier from Savee.it",
+      },
+    },
+    // Persisted Saved By usernames (comma-separated), filterable/searchable
+    {
+      name: "saved_by_usernames",
+      type: "text",
+      label: "Saved By (usernames)",
+      admin: {
+        description: "Comma-separated usernames who saved this block",
       },
     },
 

@@ -660,6 +660,12 @@ async def _upsert_block(
         ai_tags=getattr(item, 'ai_tags', []),
         colors=getattr(item, 'colors', []),
         links=getattr(item, 'links', []),
+        # Persisted origin and saved-by fields for CMS filters
+        origin_text=(
+            (getattr(item, 'username', None) or _extract_username(getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or ''))
+            if _detect_source_type(getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or '') == 'user' else _detect_source_type(getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or '')
+        ),
+        saved_by_usernames=','.join([u for u in getattr(item, 'saved_by', []) if isinstance(u, str)]) if isinstance(getattr(item, 'saved_by', None), list) else None,
     )
     
     # On conflict, update fields 
@@ -682,6 +688,8 @@ async def _upsert_block(
             'links': stmt.excluded.links,
             'metadata': stmt.excluded.metadata,
             'updated_at': func.now(),
+            'origin_text': stmt.excluded.origin_text,
+            'saved_by_usernames': stmt.excluded.saved_by_usernames,
         }
     )
     
