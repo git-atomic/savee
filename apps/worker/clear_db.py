@@ -50,5 +50,26 @@ async def clear_db():
     
     await engine.dispose()
 
+async def delete_user_by_username(username: str):
+    engine = create_async_engine(settings.async_database_url, connect_args=settings.asyncpg_connect_args)
+    Session = async_sessionmaker(engine)
+    async with Session() as session:
+        try:
+            await session.execute(text('BEGIN'))
+            # Remove relationships
+            await session.execute(text('DELETE FROM user_blocks WHERE user_id = (SELECT id FROM savee_users WHERE username = :u)'), {"u": username})
+            # Delete user
+            await session.execute(text('DELETE FROM savee_users WHERE username = :u'), {"u": username})
+            await session.commit()
+            print(f"Deleted data for user '{username}'")
+        except Exception as e:
+            await session.rollback()
+            raise
+    await engine.dispose()
+
 if __name__ == "__main__":
-    asyncio.run(clear_db())
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == 'delete-user':
+        asyncio.run(delete_user_by_username(sys.argv[2]))
+    else:
+        asyncio.run(clear_db())
