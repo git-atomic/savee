@@ -371,7 +371,7 @@ export default function EngineView() {
         if (!Number.isNaN(parsed)) payload.intervalSeconds = parsed;
       } else {
         // Empty means remove override
-        payload.intervalSeconds = null;
+        payload.intervalSeconds = undefined as any;
       }
     }
     if (typeof adaptiveBackoff === "boolean") {
@@ -617,20 +617,22 @@ export default function EngineView() {
                       Edit
                     </button>
 
-                    {/* Schedule Button */}
-                    <button
-                      onClick={() =>
-                        setScheduleEdit({
-                          jobId: job.id,
-                          intervalSeconds: "",
-                          disableBackoff: false,
-                        })
-                      }
-                      className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-sm hover:bg-indigo-200"
-                      title="Configure per-job schedule"
-                    >
-                      Schedule
-                    </button>
+                    {/* Schedule Button (redundant with inline controls) */}
+                    {false && (
+                      <button
+                        onClick={() =>
+                          setScheduleEdit({
+                            jobId: job.id,
+                            intervalSeconds: "",
+                            disableBackoff: false,
+                          })
+                        }
+                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-sm hover:bg-indigo-200"
+                        title="Configure per-job schedule"
+                      >
+                        Schedule
+                      </button>
+                    )}
 
                     {/* Info Button */}
                     <button

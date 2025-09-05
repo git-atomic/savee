@@ -65,7 +65,7 @@ export async function GET() {
           ? new Date(latestRun.completedAt).getTime()
           : undefined;
         const nextRunIso = completedAtMs
-          ? new Date(completedAtMs + baseInterval * 1000).toISOString()
+          ? new Date(Math.max(completedAtMs + baseInterval * 1000, Date.now())).toISOString()
           : undefined;
 
         return {
