@@ -5,8 +5,10 @@ Clear R2 storage for testing
 import asyncio
 from app.storage.r2 import R2Storage
 
-async def clear_r2():
-    """Clear all objects from R2 storage"""
+async def clear_r2(prefix: str | None = None):
+    """Clear all objects from R2 storage.
+    If prefix is provided, only delete objects under that prefix (e.g., 'users/cake' or 'users/cake/').
+    """
     storage = R2Storage()
     
     try:
@@ -14,7 +16,15 @@ async def clear_r2():
         async with storage:
             print("INFO: Connected to Cloudflare R2")
             
-            # List current objects first
+            # If a prefix is provided, delete just that subtree
+            if prefix:
+                pfx = prefix.lstrip('/')
+                print(f"INFO: Deleting all objects under prefix: {pfx}")
+                deleted = await storage.delete_prefix(pfx)
+                print(f"SUCCESS: Deleted {deleted} objects under {pfx}")
+                return
+
+            # List current objects first (full wipe)
             objects = await storage.list_objects()
             current_count = len(objects)
             print(f"INFO: Current objects in R2: {current_count}")
@@ -59,4 +69,6 @@ async def clear_r2():
         raise
 
 if __name__ == "__main__":
-    asyncio.run(clear_r2())
+    import sys
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
+    asyncio.run(clear_r2(arg))
