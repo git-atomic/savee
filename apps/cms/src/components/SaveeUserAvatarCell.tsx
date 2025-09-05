@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type Props = {
   rowData?: any;
@@ -8,15 +8,43 @@ type Props = {
 
 export default function SaveeUserAvatarCell({ rowData }: Props) {
   const username: string | undefined = rowData?.username;
-  // Inline neutral placeholder to avoid external defaults
-  const DEFAULT_AVATAR =
-    "data:image/svg+xml;utf8," +
-    encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
-        '<circle cx="12" cy="8" r="4" fill="#E5E7EB"/>' +
-        '<path d="M4 21c0-4.2 3.8-7 8-7s8 2.8 8 7" fill="#E5E7EB"/>' +
-        "</svg>"
-    );
+
+  const seededColor = useMemo(() => {
+    if (!username) return "#9CA3AF"; // gray-400 fallback
+    let hash = 0;
+    for (let i = 0; i < username.length; i++) {
+      hash = (hash * 31 + username.charCodeAt(i)) >>> 0;
+    }
+    const hue = hash % 360;
+    const sat = 72; // vivid
+    const light = 52; // mid-light
+    // Convert HSL to RGB hex for SVG compatibility in some clients
+    const h = hue / 360;
+    const s = sat / 100;
+    const l = light / 100;
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const r = Math.round(hue2rgb(p, q, h + 1 / 3) * 255);
+    const g = Math.round(hue2rgb(p, q, h) * 255);
+    const b = Math.round(hue2rgb(p, q, h - 1 / 3) * 255);
+    const toHex = (n: number) => n.toString(16).padStart(2, "0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }, [username]);
+
+  const DEFAULT_AVATAR = useMemo(() => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r="60" fill="${seededColor}" />
+    </svg>`;
+    return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+  }, [seededColor]);
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() => {
     const r2 = rowData?.avatar_r2_key || rowData?.avatarR2Key;
     if (r2 && typeof r2 === "string") {
@@ -40,7 +68,8 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
         return DEFAULT_AVATAR;
       }
     }
-    if (typeof direct === "string" && /default-avatar/i.test(direct)) return DEFAULT_AVATAR;
+    if (typeof direct === "string" && /default-avatar|st\.savee-cdn\.com\/img\//i.test(direct))
+      return DEFAULT_AVATAR;
     return direct || DEFAULT_AVATAR;
   });
 
@@ -59,15 +88,23 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
           }
           if (doc.profile_image_url || doc.profileImageUrl) {
             const direct = doc.profile_image_url || doc.profileImageUrl;
-            if (typeof direct === "string" && /default-avatar-\d+\.jpg/i.test(direct)) {
+            if (
+              typeof direct === "string" &&
+              /default-avatar-\d+\.jpg/i.test(direct)
+            ) {
               try {
                 const file = direct.split("/").pop() || "default-avatar.jpg";
                 const key = `users/_defaults/${file}`;
-                setAvatarUrl(`/api/r2/presign?mode=proxy&key=${encodeURIComponent(key)}&fallback=${encodeURIComponent(direct)}`);
+                setAvatarUrl(
+                  `/api/r2/presign?mode=proxy&key=${encodeURIComponent(key)}&fallback=${encodeURIComponent(direct)}`
+                );
               } catch {
                 setAvatarUrl(DEFAULT_AVATAR);
               }
-            } else if (typeof direct === "string" && /default-avatar/i.test(direct)) {
+            } else if (
+              typeof direct === "string" &&
+              /default-avatar|st\.savee-cdn\.com\/img\//i.test(direct)
+            ) {
               setAvatarUrl(DEFAULT_AVATAR);
             } else {
               setAvatarUrl(direct);
