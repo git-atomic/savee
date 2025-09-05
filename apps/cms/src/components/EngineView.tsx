@@ -371,7 +371,7 @@ export default function EngineView() {
         if (!Number.isNaN(parsed)) payload.intervalSeconds = parsed;
       } else {
         // Empty means remove override
-        payload.intervalSeconds = undefined as any;
+        payload.intervalSeconds = null;
       }
     }
     if (typeof adaptiveBackoff === "boolean") {
@@ -661,7 +661,9 @@ export default function EngineView() {
                           className="w-28 px-2 py-1 border border-gray-300 rounded text-sm"
                           title="Override interval in seconds (blank=global)"
                         />
-                        <span className="text-[10px] text-gray-500">seconds (base)</span>
+                        <span className="text-[10px] text-gray-500">
+                          seconds (base)
+                        </span>
                       </div>
                       <label
                         className="flex items-center gap-1 text-xs text-gray-700"

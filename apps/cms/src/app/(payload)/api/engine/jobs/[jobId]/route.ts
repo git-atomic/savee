@@ -236,9 +236,15 @@ export async function PATCH(
   try {
     const { jobId } = await params;
     let url: string | undefined;
+    let intervalSeconds: number | null | undefined;
+    let disableBackoff: boolean | undefined;
     try {
       const body = await request.json();
       url = body?.url;
+      if (typeof body?.intervalSeconds === "number") intervalSeconds = body.intervalSeconds;
+      else if (body?.intervalSeconds === null) intervalSeconds = null;
+      if (typeof body?.disableBackoff === "boolean")
+        disableBackoff = body.disableBackoff;
     } catch {
       url = undefined;
     }
@@ -247,6 +253,13 @@ export async function PATCH(
     // Update the source
     const data: any = {};
     if (typeof url === "string" && url.trim()) data.url = url.trim();
+    if (typeof intervalSeconds === "number" && !Number.isNaN(intervalSeconds)) {
+      data.intervalSeconds = Math.max(10, intervalSeconds);
+    } else if (intervalSeconds === null) {
+      data.intervalSeconds = undefined; // remove override
+    }
+    if (typeof disableBackoff === "boolean")
+      data.disableBackoff = disableBackoff;
     if (Object.keys(data).length === 0) {
       return NextResponse.json(
         { success: false, error: "No changes provided" },
