@@ -15,7 +15,7 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
         '<circle cx="12" cy="8" r="4" fill="#E5E7EB"/>' +
         '<path d="M4 21c0-4.2 3.8-7 8-7s8 2.8 8 7" fill="#E5E7EB"/>' +
-      "</svg>"
+        "</svg>"
     );
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() => {
     const r2 = rowData?.avatar_r2_key || rowData?.avatarR2Key;
@@ -25,11 +25,13 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
     }
     // Prefer dr.savee-cdn.com avatars if present (non-default)
     const dr = rowData?.profile_image_url || rowData?.profileImageUrl;
-    const direct = typeof dr === "string" && /dr\.savee-cdn\.com\/avatars\//i.test(dr)
-      ? dr
-      : (rowData?.profile_image_url || rowData?.profileImageUrl);
-    if (typeof direct === "string" && /default-avatar/i.test(direct)) return DEFAULT_AVATAR;
-    return direct;
+    const direct =
+      typeof dr === "string" && /dr\.savee-cdn\.com\/avatars\//i.test(dr)
+        ? dr
+        : rowData?.profile_image_url || rowData?.profileImageUrl;
+    if (typeof direct === "string" && /default-avatar/i.test(direct))
+      return DEFAULT_AVATAR;
+    return direct || DEFAULT_AVATAR;
   });
 
   useEffect(() => {
@@ -40,7 +42,9 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
           if (!doc) return;
           const r2 = doc.avatar_r2_key || doc.avatarR2Key;
           if (r2) {
-            setAvatarUrl(`/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`);
+            setAvatarUrl(
+              `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`
+            );
             return;
           }
           if (doc.profile_image_url || doc.profileImageUrl) {
@@ -57,9 +61,7 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowData?.id]);
 
-  if (!avatarUrl) {
-    return <span className="text-xs text-gray-400">—</span>;
-  }
+  // Always render an avatar (defaults to neutral placeholder)
 
   return (
     <div className="w-9 h-9 rounded-full overflow-hidden border border-gray-200 bg-gray-50 flex items-center justify-center">
