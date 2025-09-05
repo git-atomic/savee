@@ -29,8 +29,18 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
       typeof dr === "string" && /dr\.savee-cdn\.com\/avatars\//i.test(dr)
         ? dr
         : rowData?.profile_image_url || rowData?.profileImageUrl;
-    if (typeof direct === "string" && /default-avatar/i.test(direct))
-      return DEFAULT_AVATAR;
+    if (typeof direct === "string" && /default-avatar-\d+\.jpg/i.test(direct)) {
+      try {
+        const file = direct.split("/").pop() || "default-avatar.jpg";
+        const key = `users/_defaults/${file}`;
+        return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(
+          key
+        )}&fallback=${encodeURIComponent(direct)}`;
+      } catch {
+        return DEFAULT_AVATAR;
+      }
+    }
+    if (typeof direct === "string" && /default-avatar/i.test(direct)) return DEFAULT_AVATAR;
     return direct || DEFAULT_AVATAR;
   });
 
@@ -49,7 +59,15 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
           }
           if (doc.profile_image_url || doc.profileImageUrl) {
             const direct = doc.profile_image_url || doc.profileImageUrl;
-            if (typeof direct === "string" && /default-avatar/i.test(direct)) {
+            if (typeof direct === "string" && /default-avatar-\d+\.jpg/i.test(direct)) {
+              try {
+                const file = direct.split("/").pop() || "default-avatar.jpg";
+                const key = `users/_defaults/${file}`;
+                setAvatarUrl(`/api/r2/presign?mode=proxy&key=${encodeURIComponent(key)}&fallback=${encodeURIComponent(direct)}`);
+              } catch {
+                setAvatarUrl(DEFAULT_AVATAR);
+              }
+            } else if (typeof direct === "string" && /default-avatar/i.test(direct)) {
               setAvatarUrl(DEFAULT_AVATAR);
             } else {
               setAvatarUrl(direct);
