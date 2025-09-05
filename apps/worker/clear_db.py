@@ -6,6 +6,7 @@ import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import text
 from app.config import settings
+from app.storage.r2 import R2Storage
 
 async def clear_db():
     engine = create_async_engine(settings.async_database_url, connect_args=settings.asyncpg_connect_args)
@@ -65,6 +66,14 @@ async def delete_user_by_username(username: str):
         except Exception as e:
             await session.rollback()
             raise
+    # After DB commit, remove the user's avatar objects from R2 (does not touch blocks)
+    prefix = f"users/{username}/avatar"
+    try:
+        async with R2Storage() as storage:
+            deleted = await storage.delete_prefix(prefix)
+            print(f"Deleted {deleted} R2 avatar objects under {prefix}")
+    except Exception as e:
+        print(f"Warning: failed to delete R2 avatars for {username}: {e}")
     await engine.dispose()
 
 if __name__ == "__main__":
