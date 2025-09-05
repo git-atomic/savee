@@ -14,7 +14,13 @@ import { SaveeUsers } from "./collections/SaveeUsers";
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
 
-const corsOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000")
+const corsOrigins = (
+  process.env.CORS_ORIGINS ||
+  [
+    "https://visualcms.vercel.app",
+    "http://localhost:3000",
+  ].join(",")
+)
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
