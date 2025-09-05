@@ -21,7 +21,10 @@ function isAuthorized(req: NextRequest): boolean {
 export async function GET(request: NextRequest) {
   try {
     if (!isAuthorized(request)) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
     }
     const payload = await getPayload({ config });
     const db = (payload.db as any).pool;

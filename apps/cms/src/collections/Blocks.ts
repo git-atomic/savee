@@ -1,17 +1,20 @@
 import type { CollectionConfig } from "payload";
+import BlockOriginFilter from "../components/filters/BlockOriginFilter";
+import BlockSavedByFilter from "../components/filters/BlockSavedByFilter";
 
 let didBackfillFilters = false;
 
 export const Blocks: CollectionConfig = {
   slug: "blocks",
   hooks: {
-    afterRead: [async ({ req }) => {
-      if (didBackfillFilters) return;
-      didBackfillFilters = true;
-      try {
-        const db = (req.payload.db as any).pool;
-        await db.query(
-          `UPDATE blocks b
+    afterRead: [
+      async ({ req }) => {
+        if (didBackfillFilters) return;
+        didBackfillFilters = true;
+        try {
+          const db = (req.payload.db as any).pool;
+          await db.query(
+            `UPDATE blocks b
            SET origin_text = COALESCE(origin_text,
              CASE WHEN s.source_type = 'user' THEN s.username ELSE s.source_type END),
              saved_by_usernames = COALESCE(saved_by_usernames, sub.usernames)
@@ -23,9 +26,10 @@ export const Blocks: CollectionConfig = {
              GROUP BY ub.block_id
            ) AS sub ON sub.block_id = b.id
            WHERE b.source_id = s.id`
-        );
-      } catch {}
-    }],
+          );
+        } catch {}
+      },
+    ],
   },
   admin: {
     useAsTitle: "title",
@@ -43,13 +47,25 @@ export const Blocks: CollectionConfig = {
     description: "Individual scraped content blocks from Savee.it",
     listSearchableFields: [
       "title",
-      "url",
+      "url", 
       "og_title",
       "og_description",
-      "origin_text",
-      "saved_by_usernames",
+    ],
+    listFilterableFields: [
+      {
+        name: "origin_text",
+        label: "Savee User / Origin",
+        component: BlockOriginFilter,
+      },
+      {
+        name: "saved_by_usernames", 
+        label: "Saved By",
+        component: BlockSavedByFilter,
+      },
       "media_type",
       "status",
+      "source",
+      "run",
     ],
   },
   access: {
