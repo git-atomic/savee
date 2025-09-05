@@ -16,10 +16,7 @@ const dirname = path.dirname(filename);
 
 const corsOrigins = (
   process.env.CORS_ORIGINS ||
-  [
-    "https://visualcms.vercel.app",
-    "http://localhost:3000",
-  ].join(",")
+  ["https://visualcms.vercel.app", "http://localhost:3000"].join(",")
 )
   .split(",")
   .map((s) => s.trim())
@@ -90,5 +87,18 @@ export default buildConfig({
     limits: {
       fileSize: 5000000, // 5MB
     },
+  },
+  onInit: async (payload) => {
+    try {
+      const db = (payload.db as any).pool;
+      // Ensure new filterable columns exist on blocks
+      await db.query(
+        `ALTER TABLE blocks 
+         ADD COLUMN IF NOT EXISTS origin_text TEXT,
+         ADD COLUMN IF NOT EXISTS saved_by_usernames TEXT`
+      );
+    } catch (e) {
+      console.warn("[onInit] Failed to ensure blocks columns:", e);
+    }
   },
 });
