@@ -115,10 +115,15 @@ export async function DELETE(
               const core = baseKey
                 .substring(slash + 1, dot)
                 .replace(/^original_/, "");
+              // image variants
               r2Keys.push(`${basePath}thumb_${core}.jpg`);
               r2Keys.push(`${basePath}small_${core}.jpg`);
               r2Keys.push(`${basePath}medium_${core}.jpg`);
               r2Keys.push(`${basePath}large_${core}.jpg`);
+              // video poster variant if original was video
+              if (baseKey.includes(`/video_`) || baseKey.endsWith(`.mp4`)) {
+                r2Keys.push(`${basePath}poster_${core}.jpg`);
+              }
             }
           }
 
@@ -148,12 +153,33 @@ export async function DELETE(
           [sourceId]
         );
 
+        // Collect avatar keys for orphaned users before deleting them
+        const orphanAvatars = await db.query(
+          `SELECT avatar_r2_key FROM savee_users WHERE avatar_r2_key IS NOT NULL AND id NOT IN (
+            SELECT DISTINCT user_id FROM user_blocks
+          )`
+        );
+
         // Delete orphaned savee_users (users with no remaining blocks)
         await db.query(
           `DELETE FROM savee_users WHERE id NOT IN (
             SELECT DISTINCT user_id FROM user_blocks
           )`
         );
+
+        // Delete their avatar objects from R2
+        if (deleteFromR2 && orphanAvatars.rows.length > 0) {
+          const avatarKeys = orphanAvatars.rows
+            .map((r: any) => r.avatar_r2_key as string)
+            .filter(Boolean);
+          if (avatarKeys.length > 0) {
+            try {
+              await deleteObjectsFromR2(avatarKeys);
+            } catch (e) {
+              console.warn("Failed to delete orphan avatar keys from R2", e);
+            }
+          }
+        }
 
         console.log(
           `Deleted user relationships and orphaned users for source ${sourceId}`
@@ -212,6 +238,14 @@ export async function DELETE(
       }
     }
 
+    // Ensure the Payload document is removed from CMS as well
+    try {
+      await payload.delete({ collection: "sources", id: String(jobId) });
+    } catch (e) {
+      // It's fine if it was already removed via SQL; ignore
+      console.warn("Payload source delete (best-effort) warning:", e as any);
+    }
+
     return NextResponse.json({
       success: true,
       message: "Job deleted successfully with selected options",
@@ -241,7 +275,8 @@ export async function PATCH(
     try {
       const body = await request.json();
       url = body?.url;
-      if (typeof body?.intervalSeconds === "number") intervalSeconds = body.intervalSeconds;
+      if (typeof body?.intervalSeconds === "number")
+        intervalSeconds = body.intervalSeconds;
       else if (body?.intervalSeconds === null) intervalSeconds = null;
       if (typeof body?.disableBackoff === "boolean")
         disableBackoff = body.disableBackoff;
@@ -253,11 +288,12 @@ export async function PATCH(
     // Update the source
     const data: any = {};
     if (typeof url === "string" && url.trim()) data.url = url.trim();
-    if (typeof intervalSeconds === "number" && !Number.isNaN(intervalSeconds)) {
+    if (intervalSeconds === null) data.intervalSeconds = null;
+    else if (
+      typeof intervalSeconds === "number" &&
+      !Number.isNaN(intervalSeconds)
+    )
       data.intervalSeconds = Math.max(10, intervalSeconds);
-    } else if (intervalSeconds === null) {
-      data.intervalSeconds = undefined; // remove override
-    }
     if (typeof disableBackoff === "boolean")
       data.disableBackoff = disableBackoff;
     if (Object.keys(data).length === 0) {
