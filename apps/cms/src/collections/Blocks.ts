@@ -16,6 +16,7 @@ export const Blocks: CollectionConfig = {
       "createdAt",
     ],
     description: "Individual scraped content blocks from Savee.it",
+    listSearchableFields: ["title", "url", "og_title", "og_description", "origin"],
   },
   access: {
     read: () => true,
