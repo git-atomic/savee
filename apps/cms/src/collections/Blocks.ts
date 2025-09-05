@@ -1,7 +1,32 @@
 import type { CollectionConfig } from "payload";
 
+let didBackfillFilters = false;
+
 export const Blocks: CollectionConfig = {
   slug: "blocks",
+  hooks: {
+    afterRead: [async ({ req }) => {
+      if (didBackfillFilters) return;
+      didBackfillFilters = true;
+      try {
+        const db = (req.payload.db as any).pool;
+        await db.query(
+          `UPDATE blocks b
+           SET origin_text = COALESCE(origin_text,
+             CASE WHEN s.source_type = 'user' THEN s.username ELSE s.source_type END),
+             saved_by_usernames = COALESCE(saved_by_usernames, sub.usernames)
+           FROM sources s
+           LEFT JOIN (
+             SELECT ub.block_id, string_agg(u.username, ',') AS usernames
+             FROM user_blocks ub
+             JOIN savee_users u ON u.id = ub.user_id
+             GROUP BY ub.block_id
+           ) AS sub ON sub.block_id = b.id
+           WHERE b.source_id = s.id`
+        );
+      } catch {}
+    }],
+  },
   admin: {
     useAsTitle: "title",
     defaultColumns: [
@@ -23,6 +48,8 @@ export const Blocks: CollectionConfig = {
       "og_description",
       "origin_text",
       "saved_by_usernames",
+      "media_type",
+      "status",
     ],
   },
   access: {
