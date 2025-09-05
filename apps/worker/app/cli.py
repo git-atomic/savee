@@ -282,9 +282,9 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                             # Keep original url for preview; also store R2 key for CMS usage
                             profile_data['profile_image_url'] = avatar_url
                             profile_data['avatar_r2_key'] = avatar_key
-                        else:
-                            # Explicitly nullify default avatar URL to force placeholder in UI
-                            profile_data['profile_image_url'] = None
+                        elif avatar_url:
+                            # Keep default avatar URL so UI can proxy/mirror into R2 lazily
+                            profile_data['profile_image_url'] = avatar_url
                     except Exception as _avatar_err:
                         logger.debug(f"Avatar upload skipped for {username}: {_avatar_err}")
                     
