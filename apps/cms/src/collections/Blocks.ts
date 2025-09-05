@@ -74,7 +74,6 @@ export const Blocks: CollectionConfig = {
       admin: {
         description: "Persisted origin for filters (home | pop | username)",
       },
-      index: true,
     },
     // External Reference
     {
@@ -95,7 +94,6 @@ export const Blocks: CollectionConfig = {
       admin: {
         description: "Comma-separated usernames who saved this block",
       },
-      index: true,
     },
 
     // Relationships (source info available via relationships)
@@ -153,20 +151,7 @@ export const Blocks: CollectionConfig = {
         { label: "Unknown", value: "unknown" },
       ],
     },
-    // Add filter dropdowns
-    {
-      name: "origin_filter",
-      type: "select",
-      label: "Savee User / Origin",
-      admin: {
-        position: "sidebar",
-        description: "Filter helper: choose common origins",
-      },
-      options: [
-        { label: "Home", value: "home" },
-        { label: "Popular", value: "pop" },
-      ],
-    },
+    // (No extra persisted filter-only fields; use origin_text and saved_by_usernames in the filter UI.)
     {
       name: "image_url", // Match database column name
       type: "text",

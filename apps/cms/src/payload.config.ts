@@ -97,6 +97,21 @@ export default buildConfig({
          ADD COLUMN IF NOT EXISTS origin_text TEXT,
          ADD COLUMN IF NOT EXISTS saved_by_usernames TEXT`
       );
+      // Backfill for all blocks once
+      await db.query(
+        `UPDATE blocks b
+         SET origin_text = COALESCE(origin_text,
+           CASE WHEN s.source_type = 'user' THEN s.username ELSE s.source_type END),
+           saved_by_usernames = COALESCE(saved_by_usernames, sub.usernames)
+         FROM sources s
+         LEFT JOIN (
+           SELECT ub.block_id, string_agg(u.username, ',') AS usernames
+           FROM user_blocks ub
+           JOIN savee_users u ON u.id = ub.user_id
+           GROUP BY ub.block_id
+         ) AS sub ON sub.block_id = b.id
+         WHERE b.source_id = s.id`
+      );
     } catch (e) {
       console.warn("[onInit] Failed to ensure blocks columns:", e);
     }
