@@ -90,8 +90,10 @@ def main() -> int:
                     return 0
             procs.append(_Done())
             procs.append(p)
-        # Wait for any to finish
-        for i, p in list(enumerate(procs)):
+        # Wait for any to finish (pop safely without index drift)
+        i = 0
+        while i < len(procs):
+            p = procs[i]
             code = p.poll()
             if code is not None:
                 procs.pop(i)
@@ -103,6 +105,9 @@ def main() -> int:
                         except Exception:
                             pass
                     return code
+                # do not increment i since we removed current index
+                continue
+            i += 1
         # Avoid busy loop
         if procs:
             try:
