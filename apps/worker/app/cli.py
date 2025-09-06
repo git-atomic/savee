@@ -356,24 +356,26 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
             if " - Savee" in title:
                 profile_data['display_name'] = title.replace(" - Savee", "").strip()
         
-        # Extract profile image URL - capture both custom and default avatars
-        # Prefer 'dr.savee-cdn.com/avatars' first (custom avatars), then st.savee-cdn.com/img (defaults)
-        avatar_dr = re.search(r'https?://dr\.savee-cdn\.com/avatars/[^"\']+', html_content, re.IGNORECASE)
-        avatar_default = re.search(r'https?://st\.savee-cdn\.com/img/default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
-        avatar_cdn = re.search(r'https?://[^"\']*savee-cdn\.com/(?:img/)?avatars/[^"\']+', html_content, re.IGNORECASE)
-        
+        # Extract profile image URL - capture both custom and default avatars robustly
+        # 1) Prefer explicit CDN avatars
+        avatar_dr = re.search(r'https?://[^"\']*savee-cdn\.com/avatars/[^"\']+', html_content, re.IGNORECASE)
+        # 2) Any absolute default-avatar URL anywhere in the HTML
+        default_full = re.search(r'https?://[^"\']*default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
+        # 3) A bare filename that appears in <img src> or style attributes
+        default_file = re.search(r'default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
+
         if avatar_dr:
-            # Custom avatar from dr.savee-cdn.com/avatars
             profile_data['profile_image_url'] = avatar_dr.group(0)
-        elif avatar_default:
-            # Default avatar from st.savee-cdn.com/img/default-avatar-N.jpg
-            profile_data['profile_image_url'] = avatar_default.group(0)
-        elif avatar_cdn:
-            # Fallback to any other savee-cdn avatar
-            profile_data['profile_image_url'] = avatar_cdn.group(0)
+        elif default_full:
+            profile_data['profile_image_url'] = default_full.group(0)
+        elif default_file:
+            # Construct a likely default avatar URL when only filename is present
+            profile_data['profile_image_url'] = f"https://st.savee-cdn.com/img/{default_file.group(0)}"
         else:
-            # No avatar found; leave unset for neutral placeholder
-            pass
+            # As a last resort, look for any savee-cdn avatars path (covers format changes)
+            avatar_cdn = re.search(r'https?://[^"\']*savee-cdn\.com/(?:img/)?avatars/[^"\']+', html_content, re.IGNORECASE)
+            if avatar_cdn:
+                profile_data['profile_image_url'] = avatar_cdn.group(0)
 
         # Prefer DOM counters in the header toolbar (title="2,133 Saves", etc.)
         # These appear accurate and should override JSON when present
