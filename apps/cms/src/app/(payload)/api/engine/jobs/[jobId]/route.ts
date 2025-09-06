@@ -112,9 +112,9 @@ export async function DELETE(
             const dot = baseKey.lastIndexOf(".");
             if (slash > 0 && dot > slash) {
               const basePath = baseKey.substring(0, slash + 1);
-              const core = baseKey
-                .substring(slash + 1, dot)
-                .replace(/^original_/, "");
+              let core = baseKey.substring(slash + 1, dot);
+              // Normalize core by stripping known prefixes
+              core = core.replace(/^original_/, "").replace(/^video_/, "");
               // image variants
               r2Keys.push(`${basePath}thumb_${core}.jpg`);
               r2Keys.push(`${basePath}small_${core}.jpg`);
@@ -153,18 +153,20 @@ export async function DELETE(
           [sourceId]
         );
 
-        // Collect avatar keys for orphaned users before deleting them
+        // Collect avatar keys for users that will be deleted by this operation
         const orphanAvatars = await db.query(
-          `SELECT avatar_r2_key FROM savee_users WHERE avatar_r2_key IS NOT NULL AND id NOT IN (
-            SELECT DISTINCT user_id FROM user_blocks
-          )`
+          `SELECT su.avatar_r2_key FROM savee_users su
+           WHERE su.avatar_r2_key IS NOT NULL AND su.id IN (
+             SELECT su2.id FROM savee_users su2
+             LEFT JOIN user_blocks ub2 ON ub2.user_id = su2.id
+             WHERE ub2.user_id IS NULL
+           )`
         );
 
-        // Delete orphaned savee_users (users with no remaining blocks)
+        // Delete orphaned savee_users (no relationships left)
         await db.query(
-          `DELETE FROM savee_users WHERE id NOT IN (
-            SELECT DISTINCT user_id FROM user_blocks
-          )`
+          `DELETE FROM savee_users su
+           WHERE NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE ub.user_id = su.id)`
         );
 
         // Delete their avatar objects from R2
