@@ -51,8 +51,20 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
       // Use proxy to keep domain, mirror if missing
       return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`;
     }
-    // If no R2 key but have profile_image_url, show deterministic colored placeholder
-    // (All avatars should be uploaded to R2, so missing R2 key = fallback to colored circle)
+    
+    // Check if we have a profile_image_url with default avatar
+    const profileUrl = rowData?.profile_image_url || rowData?.profileImageUrl;
+    if (typeof profileUrl === "string" && /default-avatar-\d+\.jpg|st\.savee-cdn\.com\/img\//i.test(profileUrl)) {
+      // Use the actual default avatar URL directly
+      return profileUrl;
+    }
+    
+    // Check for custom avatars
+    if (typeof profileUrl === "string" && /dr\.savee-cdn\.com\/avatars\//i.test(profileUrl)) {
+      return profileUrl;
+    }
+    
+    // Only show colored circle if we have no avatar information at all
     return DEFAULT_AVATAR;
   });
 
@@ -62,13 +74,30 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
         .then((res) => (res.ok ? res.json() : null))
         .then((doc) => {
           if (!doc) return;
+          
+          // Priority 1: R2 key
           const r2 = doc.avatar_r2_key || doc.avatarR2Key;
           if (r2) {
             setAvatarUrl(
               `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`
             );
+            return;
           }
-          // If no R2 key, keep the colored placeholder (DEFAULT_AVATAR)
+          
+          // Priority 2: Direct Savee avatar URLs
+          const profileUrl = doc.profile_image_url || doc.profileImageUrl;
+          if (typeof profileUrl === "string") {
+            if (/default-avatar-\d+\.jpg|st\.savee-cdn\.com\/img\//i.test(profileUrl)) {
+              setAvatarUrl(profileUrl);
+              return;
+            }
+            if (/dr\.savee-cdn\.com\/avatars\//i.test(profileUrl)) {
+              setAvatarUrl(profileUrl);
+              return;
+            }
+          }
+          
+          // Keep colored placeholder as final fallback
         })
         .catch(() => {});
     }
