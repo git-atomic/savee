@@ -51,58 +51,61 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
       // Use proxy to keep domain, mirror if missing
       return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`;
     }
-    
+
     // Check if we have a profile_image_url with default avatar
     const profileUrl = rowData?.profile_image_url || rowData?.profileImageUrl;
-    if (typeof profileUrl === "string" && /default-avatar-\d+\.jpg|st\.savee-cdn\.com\/img\//i.test(profileUrl)) {
+    if (
+      typeof profileUrl === "string" &&
+      /default-avatar-\d+\.jpg|st\.savee-cdn\.com\/img\//i.test(profileUrl)
+    ) {
       // Use the actual default avatar URL directly
       return profileUrl;
     }
-    
+
     // Check for custom avatars
-    if (typeof profileUrl === "string" && /dr\.savee-cdn\.com\/avatars\//i.test(profileUrl)) {
+    if (
+      typeof profileUrl === "string" &&
+      /dr\.savee-cdn\.com\/avatars\//i.test(profileUrl)
+    ) {
       return profileUrl;
     }
-    
+
     // Only show colored circle if we have no avatar information at all
     return DEFAULT_AVATAR;
   });
 
   useEffect(() => {
-    if (avatarUrl === DEFAULT_AVATAR && rowData?.id) {
-      fetch(`/api/savee_users/${rowData.id}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((doc) => {
-          if (!doc) return;
-          
-          // Priority 1: R2 key
-          const r2 = doc.avatar_r2_key || doc.avatarR2Key;
+    if (avatarUrl === DEFAULT_AVATAR && (rowData?.id || rowData?.username)) {
+      const username = rowData?.username as string | undefined;
+      const docPromise = rowData?.id
+        ? fetch(`/api/savee_users/${rowData.id}`).then((r) =>
+            r.ok ? r.json() : null
+          )
+        : Promise.resolve(null);
+      const avatarPromise = username
+        ? fetch(`/api/users/${encodeURIComponent(username)}/avatar`).then((r) =>
+            r.ok ? r.json() : null
+          )
+        : Promise.resolve(null);
+
+      Promise.all([docPromise, avatarPromise])
+        .then(([doc, avatar]) => {
+          const r2 = doc?.avatar_r2_key || doc?.avatarR2Key;
           if (r2) {
             setAvatarUrl(
               `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`
             );
             return;
           }
-          
-          // Priority 2: Direct Savee avatar URLs
-          const profileUrl = doc.profile_image_url || doc.profileImageUrl;
-          if (typeof profileUrl === "string") {
-            if (/default-avatar-\d+\.jpg|st\.savee-cdn\.com\/img\//i.test(profileUrl)) {
-              setAvatarUrl(profileUrl);
-              return;
-            }
-            if (/dr\.savee-cdn\.com\/avatars\//i.test(profileUrl)) {
-              setAvatarUrl(profileUrl);
-              return;
-            }
+          const src = avatar?.src || doc?.profile_image_url || doc?.profileImageUrl;
+          if (typeof src === "string" && src.length > 0) {
+            setAvatarUrl(src);
           }
-          
-          // Keep colored placeholder as final fallback
         })
         .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowData?.id]);
+  }, [rowData?.id, rowData?.username]);
 
   // Always render an avatar (defaults to neutral placeholder)
 
