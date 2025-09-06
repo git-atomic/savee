@@ -97,6 +97,14 @@ export default buildConfig({
          ADD COLUMN IF NOT EXISTS origin_text TEXT,
          ADD COLUMN IF NOT EXISTS saved_by_usernames TEXT`
       );
+      // Tombstone table to prevent re-adding deleted items
+      await db.query(
+        `CREATE TABLE IF NOT EXISTS deleted_blocks (
+           external_id TEXT PRIMARY KEY,
+           source_id INTEGER,
+           deleted_at TIMESTAMPTZ DEFAULT now()
+         )`
+      );
       // Backfill for all blocks once
       await db.query(
         `UPDATE blocks b

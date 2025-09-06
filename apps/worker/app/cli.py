@@ -550,6 +550,16 @@ async def _upsert_block(
     r2_key: Optional[str] = None,
 ) -> int:
     """Upsert a block with enhanced metadata from the scraper."""
+    # Respect tombstones: if this external_id was explicitly deleted, skip re-adding
+    try:
+        from sqlalchemy import text as _sql_text
+        tomb_q = await session.execute(_sql_text("SELECT 1 FROM deleted_blocks WHERE external_id = :eid"), {"eid": item.external_id})
+        if tomb_q.scalar() is not None:
+            raise ValueError("tombstoned")
+    except Exception:
+        # If table missing or error, continue normally
+        pass
+
     # Pre-dedupe by external_id or stable media URLs to avoid duplicates across users/runs
     try:
         dedupe_conditions = [Block.external_id == item.external_id]

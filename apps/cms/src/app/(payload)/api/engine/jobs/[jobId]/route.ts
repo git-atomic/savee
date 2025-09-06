@@ -214,6 +214,13 @@ export async function DELETE(
         );
 
         // Delete blocks then runs then source (respect FKs)
+        // Before deleting blocks, record their external_ids to tombstone table
+        const tombstones = await db.query(
+          `INSERT INTO deleted_blocks (external_id, source_id)
+           SELECT external_id, source_id FROM blocks WHERE source_id = $1
+           ON CONFLICT (external_id) DO UPDATE SET source_id = EXCLUDED.source_id, deleted_at = now()`,
+          [sourceId]
+        );
         const delBlocks = await db.query(
           `DELETE FROM blocks WHERE source_id = $1`,
           [sourceId]
