@@ -64,6 +64,7 @@ export default function EngineView() {
   const jobsRef = useRef<JobData[]>([]); // Ref to access current jobs in intervals
   const [, setEditingJob] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<EngineMetrics | null>(null);
+  const [jobQuery, setJobQuery] = useState<string>("");
   const [deleteConfirm, setDeleteConfirm] = useState<{
     jobId: string;
     confirmUrl: string;
@@ -584,8 +585,15 @@ export default function EngineView() {
 
       {/* Jobs List */}
       <div className="bg-white rounded-lg border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold">Jobs ({jobs.length})</h2>
+          <input
+            type="text"
+            placeholder="Search jobs (url or username)"
+            className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded text-sm"
+            value={jobQuery}
+            onChange={(e) => setJobQuery(e.currentTarget.value)}
+          />
         </div>
 
         {jobs.length === 0 ? (
@@ -594,7 +602,16 @@ export default function EngineView() {
           </div>
         ) : (
           <div className="divide-y divide-gray-200">
-            {jobs.map((job) => (
+            {jobs
+              .filter((j) => {
+                if (!jobQuery.trim()) return true;
+                const q = jobQuery.trim().toLowerCase();
+                return (
+                  (j.url || "").toLowerCase().includes(q) ||
+                  (j.username || "").toLowerCase().includes(q)
+                );
+              })
+              .map((job) => (
               <div key={job.id} className="p-6">
                 {/* Job Header */}
                 <div className="flex items-center justify-between mb-4">
