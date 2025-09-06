@@ -165,6 +165,18 @@ class Block(Base):
         doc="Complete sidebar info and other metadata"
     )
     
+    # Persisted fields used for CMS filtering/search (optional)
+    origin_text: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Computed origin for filters (home | pop | username)"
+    )
+    saved_by_usernames: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Comma-separated usernames who saved this block"
+    )
+    
     # Storage
     r2_key: Mapped[str] = mapped_column(
         Text, 
