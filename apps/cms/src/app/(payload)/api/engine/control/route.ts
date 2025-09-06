@@ -114,6 +114,11 @@ export async function POST(request: NextRequest) {
     const jobId = (body as any)?.jobId;
     const action = (body as any)?.action;
     const newUrl = (body as any)?.newUrl;
+    const newMaxItemsRaw = (body as any)?.newMaxItems;
+    const newMaxItems: number | null =
+      typeof newMaxItemsRaw === "number" && isFinite(newMaxItemsRaw)
+        ? Math.max(0, Math.floor(newMaxItemsRaw))
+        : null;
 
     if (!jobId || !action) {
       return NextResponse.json(
@@ -388,9 +393,10 @@ export async function POST(request: NextRequest) {
 
       case "edit": {
         const normalizedUrl = (newUrl || "").trim();
-        if (!normalizedUrl) {
+        const onlyUpdateMax = !normalizedUrl && newMaxItems !== null;
+        if (!normalizedUrl && !onlyUpdateMax) {
           return NextResponse.json(
-            { success: false, error: "newUrl is required" },
+            { success: false, error: "Provide newUrl or newMaxItems" },
             { status: 400 }
           );
         }
@@ -410,23 +416,26 @@ export async function POST(request: NextRequest) {
           }
         })();
 
-        // Freeze the old source so its runs/blocks remain unchanged
-        await db.query(
-          "UPDATE sources SET status = 'completed', updated_at = now() WHERE id = $1",
-          [parseInt(jobId)]
-        );
+        let targetSourceId = parseInt(jobId);
+        if (!onlyUpdateMax) {
+          // Freeze the old source so its runs/blocks remain unchanged
+          await db.query(
+            "UPDATE sources SET status = 'completed', updated_at = now() WHERE id = $1",
+            [parseInt(jobId)]
+          );
 
-        // Create a new source for the edited URL/type
-        const newUsername =
-          srcType === "user"
-            ? normalizedUrl.split("/").filter(Boolean).slice(-1)[0]
-            : null;
-        const newSourceRes = await db.query(
-          `INSERT INTO sources (url, source_type, username, status, created_at, updated_at)
-           VALUES ($1, $2, $3, 'active', now(), now()) RETURNING id`,
-          [normalizedUrl, srcType, newUsername]
-        );
-        const newSourceId: number = newSourceRes.rows[0].id;
+          // Create a new source for the edited URL/type
+          const newUsername =
+            srcType === "user"
+              ? normalizedUrl.split("/").filter(Boolean).slice(-1)[0]
+              : null;
+          const newSourceRes = await db.query(
+            `INSERT INTO sources (url, source_type, username, status, created_at, updated_at)
+             VALUES ($1, $2, $3, 'active', now(), now()) RETURNING id`,
+            [normalizedUrl, srcType, newUsername]
+          );
+          targetSourceId = newSourceRes.rows[0].id as number;
+        }
 
         // Attempt to kill any running process to avoid overlap
         const proc = runningProcesses.get(jobId);
@@ -447,16 +456,17 @@ export async function POST(request: NextRequest) {
         // Create a fresh run using the most recent max_items (default 50)
         const runsResult2 = await db.query(
           "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
-          [parseInt(jobId)]
+          [onlyUpdateMax ? parseInt(jobId) : targetSourceId]
         );
-        const maxItems2 = runsResult2.rows[0]?.max_items ?? null;
+        const maxItems2 =
+          newMaxItems !== null ? newMaxItems : runsResult2.rows[0]?.max_items ?? null;
 
         const runResult2 = await db.query(
           `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id`,
           [
-            newSourceId,
+            targetSourceId,
             "manual",
             maxItems2,
             "pending",
@@ -469,9 +479,12 @@ export async function POST(request: NextRequest) {
 
         // Start worker with the updated URL
         const started2 = await startWorkerProcess(
-          String(newSourceId),
+          String(targetSourceId),
           runId2,
-          normalizedUrl,
+          onlyUpdateMax ? (await (async () => {
+            const res = await db.query("SELECT url FROM sources WHERE id = $1", [targetSourceId]);
+            return res.rows[0]?.url as string;
+          })()) : normalizedUrl,
           maxItems2 ?? 0,
           db
         );

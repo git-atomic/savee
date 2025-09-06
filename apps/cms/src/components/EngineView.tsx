@@ -364,29 +364,34 @@ export default function EngineView() {
     }
   };
 
-  // Simple edit flow via prompt until modal is reintroduced
+  // Simple edit flow via prompts: allow changing URL and/or Max Items
   const editJob = async (jobId: string, currentUrl: string) => {
-    const newUrl = window.prompt(
-      "Enter new URL to scrape:",
+    const urlInput = window.prompt(
+      "Edit job: Enter new URL or leave blank to only change Max Items",
       currentUrl || "https://savee.com/"
     );
-    if (!newUrl || newUrl.trim() === currentUrl) return;
+    const urlValue = (urlInput || "").trim();
+    const maxStr = window.prompt("Max Items (0 = unlimited):", "0");
+    const maxNum = maxStr ? parseInt(maxStr, 10) : 0;
     try {
+      const payload: any = { action: "edit", jobId };
+      if (urlValue && urlValue !== currentUrl) payload.newUrl = urlValue;
+      if (!Number.isNaN(maxNum)) payload.newMaxItems = maxNum;
       const resp = await fetch("/api/engine/control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "edit", jobId, newUrl: newUrl.trim() }),
+        body: JSON.stringify(payload),
       });
       if (resp.ok) {
         fetchJobs();
-        alert("Job URL updated and restarted successfully.");
+        alert("Job updated and restarted.");
       } else {
         const err = await resp.json().catch(() => ({}));
-        alert(`Failed to update job URL${err?.error ? `: ${err.error}` : ""}`);
+        alert(`Failed to update job${err?.error ? `: ${err.error}` : ""}`);
       }
     } catch (e) {
       console.error("Edit job error:", e);
-      alert("Failed to update job URL. Please try again.");
+      alert("Failed to update job. Please try again.");
     }
   };
 
@@ -612,389 +617,392 @@ export default function EngineView() {
                 );
               })
               .map((job) => (
-              <div key={job.id} className="p-6">
-                {/* Job Header */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}
-                      >
-                        {job.status.toUpperCase()}
-                      </span>
-                      {/* Pause Badge - Show when run is paused */}
-                      {job.runStatus === "paused" && (
-                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 flex items-center gap-1">
-                          <span>⏸</span>
-                          PAUSED
-                        </span>
-                      )}
-                      <span className="text-sm text-gray-600">
-                        {getSourceTypeDisplay(job.sourceType, job.username)}
-                      </span>
-                    </div>
-                    <div className="text-sm font-mono text-gray-800">
-                      {job.url}
-                    </div>
-                    <div
-                      className="text-xs text-gray-500 mt-1"
-                      title={`Last completed: ${formatDateTime(job.lastRun)}\nNext scheduled: ${formatDateTime(job.nextRun)}`}
-                    >
-                      Next scheduled: {formatDateTime(job.nextRun)}{" "}
-                      <span
-                        className="ml-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
-                        title="Countdown until the next scheduled run"
-                      >
-                        due in {formatDueIn(computeDueInSeconds(job.nextRun))}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Job Controls */}
-                  <div className="flex items-center gap-2">
-                    {/* Pause Button - Available for active AND running jobs, but not if already paused */}
-                    {(job.status === "active" || job.status === "running") &&
-                      job.runStatus !== "paused" && (
-                        <button
-                          onClick={() => pauseJob(job.id)}
-                          className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded text-sm hover:bg-yellow-200"
-                          title="Pause Job"
+                <div key={job.id} className="p-6">
+                  {/* Job Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}
                         >
-                          Pause
+                          {job.status.toUpperCase()}
+                        </span>
+                        {/* Pause Badge - Show when run is paused */}
+                        {job.runStatus === "paused" && (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 flex items-center gap-1">
+                            <span>⏸</span>
+                            PAUSED
+                          </span>
+                        )}
+                        <span className="text-sm text-gray-600">
+                          {getSourceTypeDisplay(job.sourceType, job.username)}
+                        </span>
+                      </div>
+                      <div className="text-sm font-mono text-gray-800">
+                        {job.url}
+                      </div>
+                      <div
+                        className="text-xs text-gray-500 mt-1"
+                        title={`Last completed: ${formatDateTime(job.lastRun)}\nNext scheduled: ${formatDateTime(job.nextRun)}`}
+                      >
+                        Next scheduled: {formatDateTime(job.nextRun)}{" "}
+                        <span
+                          className="ml-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
+                          title="Countdown until the next scheduled run"
+                        >
+                          due in {formatDueIn(computeDueInSeconds(job.nextRun))}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Job Controls */}
+                    <div className="flex items-center gap-2">
+                      {/* Pause Button - Available for active AND running jobs, but not if already paused */}
+                      {(job.status === "active" || job.status === "running") &&
+                        job.runStatus !== "paused" && (
+                          <button
+                            onClick={() => pauseJob(job.id)}
+                            className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded text-sm hover:bg-yellow-200"
+                            title="Pause Job"
+                          >
+                            Pause
+                          </button>
+                        )}
+
+                      {/* Resume Button - Only for paused jobs */}
+                      {(job.status === "paused" ||
+                        job.runStatus === "paused") && (
+                        <button
+                          onClick={() => resumeJob(job.id)}
+                          className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
+                          title="Resume Job"
+                        >
+                          Resume
                         </button>
                       )}
 
-                    {/* Resume Button - Only for paused jobs */}
-                    {(job.status === "paused" ||
-                      job.runStatus === "paused") && (
-                      <button
-                        onClick={() => resumeJob(job.id)}
-                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
-                        title="Resume Job"
-                      >
-                        Resume
-                      </button>
-                    )}
-
-                    {/* Run Now Button - Only for active jobs */}
-                    {job.status === "active" && (
-                      <button
-                        onClick={() => runNowJob(job.id)}
-                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
-                        title="Run Now"
-                      >
-                        Run Now
-                      </button>
-                    )}
-
-                    {/* Edit Button - Always visible; works via prompt; prefer paused */}
-                    <button
-                      onClick={() => editJob(job.id, job.url)}
-                      className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm hover:bg-purple-200"
-                      title="Edit URL and restart scraping"
-                    >
-                      Edit
-                    </button>
-
-                    {/* Info Button */}
-                    <button
-                      className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200"
-                      title={`Last run: ${formatDateTime(job.lastRun)}\nNext: ${formatDateTime(job.nextRun)}`}
-                    >
-                      Info
-                    </button>
-                    {/* Inline schedule controls */}
-                    <div className="flex items-center gap-3 ml-2">
-                      <div className="flex flex-col">
-                        <input
-                          type="number"
-                          min={10}
-                          placeholder="Interval (s)"
-                          defaultValue={
-                            (job.intervalSeconds ??
-                              job.effectiveIntervalSeconds ??
-                              undefined) as any
-                          }
-                          onBlur={(e) =>
-                            updateScheduleInline(
-                              job.id,
-                              e.currentTarget.value,
-                              undefined
-                            )
-                          }
-                          className="w-28 px-2 py-1 border border-gray-300 rounded text-sm"
-                          title="Override interval in seconds (blank=global)"
-                        />
-                        <span className="text-[10px] text-gray-500">
-                          seconds (base)
-                        </span>
-                      </div>
-                      {/* Effective interval chip */}
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap"
-                          title="Base interval used to schedule the next run (override or global)"
+                      {/* Run Now Button - Only for active jobs */}
+                      {job.status === "active" && (
+                        <button
+                          onClick={() => runNowJob(job.id)}
+                          className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
+                          title="Run Now"
                         >
-                          Base interval:{" "}
-                          {formatSeconds(
-                            job.effectiveIntervalSeconds ??
-                              job.intervalSeconds ??
-                              0
-                          )}
-                        </div>
-                        {renderBackoffChip(job)}
-                      </div>
-                      <label
-                        className="flex items-center gap-1 text-xs text-gray-700"
-                        title="Adaptive backoff reduces frequency after errors/zero-uploads"
+                          Run Now
+                        </button>
+                      )}
+
+                      {/* Edit Button - Always visible; works via prompt; prefer paused */}
+                      <button
+                        onClick={() => editJob(job.id, job.url)}
+                        className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm hover:bg-purple-200"
+                        title="Edit URL and/or Max Items, then restart"
                       >
-                        <input
-                          type="checkbox"
-                          defaultChecked={!job.disableBackoff}
-                          onChange={(e) =>
-                            updateScheduleInline(
-                              job.id,
-                              undefined,
-                              e.currentTarget.checked
-                            )
-                          }
-                        />
-                        Adaptive
-                      </label>
+                        Edit
+                      </button>
+
+                      {/* Info Button */}
+                      <button
+                        className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200"
+                        title={`Last run: ${formatDateTime(job.lastRun)}\nNext: ${formatDateTime(job.nextRun)}`}
+                      >
+                        Info
+                      </button>
+                      {/* Inline schedule controls */}
+                      <div className="flex items-center gap-3 ml-2">
+                        <div className="flex flex-col">
+                          <input
+                            type="number"
+                            min={10}
+                            placeholder="Interval (s)"
+                            defaultValue={
+                              (job.intervalSeconds ??
+                                job.effectiveIntervalSeconds ??
+                                undefined) as any
+                            }
+                            onBlur={(e) =>
+                              updateScheduleInline(
+                                job.id,
+                                e.currentTarget.value,
+                                undefined
+                              )
+                            }
+                            className="w-28 px-2 py-1 border border-gray-300 rounded text-sm"
+                            title="Override interval in seconds (blank=global)"
+                          />
+                          <span className="text-[10px] text-gray-500">
+                            seconds (base)
+                          </span>
+                        </div>
+                        {/* Effective interval chip */}
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap"
+                            title="Base interval used to schedule the next run (override or global)"
+                          >
+                            Base interval:{" "}
+                            {formatSeconds(
+                              job.effectiveIntervalSeconds ??
+                                job.intervalSeconds ??
+                                0
+                            )}
+                          </div>
+                          {renderBackoffChip(job)}
+                        </div>
+                        <label
+                          className="flex items-center gap-1 text-xs text-gray-700"
+                          title="Adaptive backoff reduces frequency after errors/zero-uploads"
+                        >
+                          <input
+                            type="checkbox"
+                            defaultChecked={!job.disableBackoff}
+                            onChange={(e) =>
+                              updateScheduleInline(
+                                job.id,
+                                undefined,
+                                e.currentTarget.checked
+                              )
+                            }
+                          />
+                          Adaptive
+                        </label>
+                      </div>
+
+                      {/* Delete */}
+                      <button
+                        onClick={() =>
+                          setDeleteConfirm({
+                            jobId: job.id,
+                            confirmUrl: "",
+                            deleteFromDb: true,
+                            deleteFromR2: true,
+                            deleteUsers: true,
+                          })
+                        }
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200"
+                        title="Delete Job (requires URL confirmation)"
+                      >
+                        Delete
+                      </button>
                     </div>
-
-                    {/* Delete */}
-                    <button
-                      onClick={() =>
-                        setDeleteConfirm({
-                          jobId: job.id,
-                          confirmUrl: "",
-                          deleteFromDb: true,
-                          deleteFromR2: true,
-                          deleteUsers: true,
-                        })
-                      }
-                      className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200"
-                      title="Delete Job (requires URL confirmation)"
-                    >
-                      Delete
-                    </button>
                   </div>
-                </div>
 
-                {/* Counters */}
-                <div className="flex items-center gap-6 mb-4 text-sm">
-                  <span className="text-green-600">
-                    <strong>{job.counters.uploaded}</strong> uploaded
-                  </span>
-                  <span className="text-blue-600">
-                    <strong>{job.counters.found}</strong> processed
-                  </span>
-                  {(job.counters.skipped ?? 0) > 0 && (
+                  {/* Counters */}
+                  <div className="flex items-center gap-6 mb-4 text-sm">
+                    <span className="text-green-600">
+                      <strong>{job.counters.uploaded}</strong> uploaded
+                    </span>
+                    <span className="text-blue-600">
+                      <strong>{job.counters.found}</strong> processed
+                    </span>
+                    {(job.counters.skipped ?? 0) > 0 && (
+                      <span className="text-gray-600">
+                        <strong>{job.counters.skipped}</strong> skipped
+                      </span>
+                    )}
+                    {job.counters.errors > 0 && (
+                      <span className="text-red-600">
+                        <strong>{job.counters.errors}</strong> errors
+                      </span>
+                    )}
                     <span className="text-gray-600">
-                      <strong>{job.counters.skipped}</strong> skipped
+                      Max: <strong>{job.maxItems}</strong>
                     </span>
-                  )}
-                  {job.counters.errors > 0 && (
-                    <span className="text-red-600">
-                      <strong>{job.counters.errors}</strong> errors
-                    </span>
-                  )}
-                  <span className="text-gray-600">
-                    Max: <strong>{job.maxItems}</strong>
-                  </span>
-                </div>
-
-                {/* Error Message */}
-                {job.status === "error" && job.error && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
-                    <div className="text-red-800 text-sm font-medium">
-                      Error:
-                    </div>
-                    <div className="text-red-700 text-sm">{job.error}</div>
                   </div>
-                )}
 
-                {/* Logs Toggle */}
-                <button
-                  onClick={() => toggleJobLogs(job.id)}
-                  className="flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm"
-                >
-                  <span
-                    className={`transform transition-transform ${expandedJobs.has(job.id) ? "rotate-90" : ""}`}
+                  {/* Error Message */}
+                  {job.status === "error" && job.error && (
+                    <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
+                      <div className="text-red-800 text-sm font-medium">
+                        Error:
+                      </div>
+                      <div className="text-red-700 text-sm">{job.error}</div>
+                    </div>
+                  )}
+
+                  {/* Logs Toggle */}
+                  <button
+                    onClick={() => toggleJobLogs(job.id)}
+                    className="flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm"
                   >
-                    ▶
-                  </span>
-                  Logs
-                </button>
+                    <span
+                      className={`transform transition-transform ${expandedJobs.has(job.id) ? "rotate-90" : ""}`}
+                    >
+                      ▶
+                    </span>
+                    Logs
+                  </button>
 
-                {/* Logs Content */}
-                {expandedJobs.has(job.id) && (
-                  <div className="mt-4">
-                    <div className="bg-gray-900 rounded-lg border border-gray-700">
-                      {/* Header */}
-                      <div className="px-4 py-3 bg-gray-800 rounded-t-lg border-b border-gray-700">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-medium text-gray-100">
-                            Real-time Logs
-                          </h4>
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                            <span className="text-xs text-gray-400">Live</span>
-                            <button
-                              onClick={() => {
-                                // Jump to latest and re-enable auto-scroll
-                                logsEndRef.current[job.id]?.scrollIntoView({
-                                  behavior: "smooth",
-                                  block: "end",
-                                });
-                                setIsAutoScroll((prev) => ({
-                                  ...prev,
-                                  [job.id]: true,
-                                }));
-                              }}
-                              className="ml-3 text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded"
-                              title="Jump to latest log"
-                            >
-                              Jump to latest
-                            </button>
+                  {/* Logs Content */}
+                  {expandedJobs.has(job.id) && (
+                    <div className="mt-4">
+                      <div className="bg-gray-900 rounded-lg border border-gray-700">
+                        {/* Header */}
+                        <div className="px-4 py-3 bg-gray-800 rounded-t-lg border-b border-gray-700">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-medium text-gray-100">
+                              Real-time Logs
+                            </h4>
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-gray-400">
+                                Live
+                              </span>
+                              <button
+                                onClick={() => {
+                                  // Jump to latest and re-enable auto-scroll
+                                  logsEndRef.current[job.id]?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "end",
+                                  });
+                                  setIsAutoScroll((prev) => ({
+                                    ...prev,
+                                    [job.id]: true,
+                                  }));
+                                }}
+                                className="ml-3 text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded"
+                                title="Jump to latest log"
+                              >
+                                Jump to latest
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Logs Container */}
-                      <div
-                        className="max-h-80 overflow-y-auto scroll-smooth bg-black/70 border-t border-gray-700"
-                        style={{ scrollBehavior: "smooth" }}
-                        ref={(el) => {
-                          if (el) {
-                            logsContainerRef.current[job.id] = el;
-                          }
-                        }}
-                        onScroll={(e) => {
-                          const el = e.currentTarget;
-                          const nearBottom =
-                            el.scrollHeight - el.scrollTop - el.clientHeight <
-                            40;
-                          setIsAutoScroll((prev) => ({
-                            ...prev,
-                            [job.id]: nearBottom,
-                          }));
-                        }}
-                      >
-                        {logs[job.id]?.length ? (
-                          <div className="p-4 space-y-3">
-                            {logs[job.id].map((log, idx) => {
-                              const isNewBlock =
-                                idx === 0 ||
-                                logs[job.id][idx - 1]?.type === "COMPLETE";
+                        {/* Logs Container */}
+                        <div
+                          className="max-h-80 overflow-y-auto scroll-smooth bg-black/70 border-t border-gray-700"
+                          style={{ scrollBehavior: "smooth" }}
+                          ref={(el) => {
+                            if (el) {
+                              logsContainerRef.current[job.id] = el;
+                            }
+                          }}
+                          onScroll={(e) => {
+                            const el = e.currentTarget;
+                            const nearBottom =
+                              el.scrollHeight - el.scrollTop - el.clientHeight <
+                              40;
+                            setIsAutoScroll((prev) => ({
+                              ...prev,
+                              [job.id]: nearBottom,
+                            }));
+                          }}
+                        >
+                          {logs[job.id]?.length ? (
+                            <div className="p-4 space-y-3">
+                              {logs[job.id].map((log, idx) => {
+                                const isNewBlock =
+                                  idx === 0 ||
+                                  logs[job.id][idx - 1]?.type === "COMPLETE";
 
-                              return (
-                                <div key={idx}>
-                                  {/* Block Separator */}
-                                  {isNewBlock && idx > 0 && (
-                                    <div className="border-t border-gray-700 my-4"></div>
-                                  )}
+                                return (
+                                  <div key={idx}>
+                                    {/* Block Separator */}
+                                    {isNewBlock && idx > 0 && (
+                                      <div className="border-t border-gray-700 my-4"></div>
+                                    )}
 
-                                  {/* Log Entry */}
-                                  <div className="font-mono text-sm text-gray-200 bg-gray-900/70 border border-gray-700 rounded px-3 py-2">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {/* [Date | Time] Badge */}
-                                      <span className="inline-flex items-center px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs">
-                                        [{formatDateOnly(log.timestamp)} |{" "}
-                                        {formatTimeOnly(log.timestamp)}]
-                                      </span>
+                                    {/* Log Entry */}
+                                    <div className="font-mono text-sm text-gray-200 bg-gray-900/70 border border-gray-700 rounded px-3 py-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {/* [Date | Time] Badge */}
+                                        <span className="inline-flex items-center px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs">
+                                          [{formatDateOnly(log.timestamp)} |{" "}
+                                          {formatTimeOnly(log.timestamp)}]
+                                        </span>
 
-                                      {/* (TYPE) Badge */}
-                                      <span
-                                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                                          log.type === "STARTING"
-                                            ? "bg-blue-600 text-blue-100"
-                                            : log.type === "FETCH"
-                                              ? "bg-amber-600 text-amber-100"
-                                              : log.type === "SCRAPE"
-                                                ? "bg-purple-600 text-purple-100"
-                                                : log.type === "COMPLETE"
-                                                  ? "bg-green-600 text-green-100"
-                                                  : log.type === "WRITE/UPLOAD"
-                                                    ? "bg-indigo-600 text-indigo-100"
-                                                    : log.type === "ERROR"
-                                                      ? "bg-red-600 text-red-100"
-                                                      : "bg-gray-600 text-gray-100"
-                                        }`}
-                                      >
-                                        ({log.type})
-                                      </span>
-
-                                      {/* URL/Message */}
-                                      <span className="text-gray-200 flex-1 min-w-0 truncate">
-                                        {log.url || log.message}
-                                      </span>
-
-                                      {/* (✓/❌) Status Badge */}
-                                      {log.status && (
+                                        {/* (TYPE) Badge */}
                                         <span
-                                          className={`inline-flex items-center px-2 py-1 rounded text-xs ${
-                                            log.status === "✓" ||
-                                            log.status === "⏳"
-                                              ? "bg-green-600 text-green-100"
-                                              : "bg-red-600 text-red-100"
+                                          className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                                            log.type === "STARTING"
+                                              ? "bg-blue-600 text-blue-100"
+                                              : log.type === "FETCH"
+                                                ? "bg-amber-600 text-amber-100"
+                                                : log.type === "SCRAPE"
+                                                  ? "bg-purple-600 text-purple-100"
+                                                  : log.type === "COMPLETE"
+                                                    ? "bg-green-600 text-green-100"
+                                                    : log.type ===
+                                                        "WRITE/UPLOAD"
+                                                      ? "bg-indigo-600 text-indigo-100"
+                                                      : log.type === "ERROR"
+                                                        ? "bg-red-600 text-red-100"
+                                                        : "bg-gray-600 text-gray-100"
                                           }`}
                                         >
-                                          ({log.status})
+                                          ({log.type})
                                         </span>
-                                      )}
 
-                                      {/* (⏱ timing) Badge */}
-                                      {log.timing && (
-                                        <span className="inline-flex items-center px-2 py-1 rounded bg-gray-600 text-gray-200 text-xs">
-                                          (⏱ {log.timing})
+                                        {/* URL/Message */}
+                                        <span className="text-gray-200 flex-1 min-w-0 truncate">
+                                          {log.url || log.message}
                                         </span>
-                                      )}
+
+                                        {/* (✓/❌) Status Badge */}
+                                        {log.status && (
+                                          <span
+                                            className={`inline-flex items-center px-2 py-1 rounded text-xs ${
+                                              log.status === "✓" ||
+                                              log.status === "⏳"
+                                                ? "bg-green-600 text-green-100"
+                                                : "bg-red-600 text-red-100"
+                                            }`}
+                                          >
+                                            ({log.status})
+                                          </span>
+                                        )}
+
+                                        {/* (⏱ timing) Badge */}
+                                        {log.timing && (
+                                          <span className="inline-flex items-center px-2 py-1 rounded bg-gray-600 text-gray-200 text-xs">
+                                            (⏱ {log.timing})
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              );
-                            })}
-                            {/* Auto-scroll target */}
-                            <div
-                              ref={(el) => {
-                                if (el) {
-                                  logsEndRef.current[job.id] = el;
-                                }
-                              }}
-                              style={{ height: "1px" }}
-                            />
-                          </div>
-                        ) : (
-                          <div className="p-8 text-center text-gray-500">
-                            <div className="w-12 h-12 mx-auto mb-3 bg-gray-800 rounded-lg flex items-center justify-center">
-                              <svg
-                                className="w-6 h-6"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                />
-                              </svg>
+                                );
+                              })}
+                              {/* Auto-scroll target */}
+                              <div
+                                ref={(el) => {
+                                  if (el) {
+                                    logsEndRef.current[job.id] = el;
+                                  }
+                                }}
+                                style={{ height: "1px" }}
+                              />
                             </div>
-                            <p className="text-sm">No logs available</p>
-                            <p className="text-xs mt-1">
-                              Start a scraping job to see real-time logs
-                            </p>
-                          </div>
-                        )}
+                          ) : (
+                            <div className="p-8 text-center text-gray-500">
+                              <div className="w-12 h-12 mx-auto mb-3 bg-gray-800 rounded-lg flex items-center justify-center">
+                                <svg
+                                  className="w-6 h-6"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                  />
+                                </svg>
+                              </div>
+                              <p className="text-sm">No logs available</p>
+                              <p className="text-xs mt-1">
+                                Start a scraping job to see real-time logs
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              ))}
           </div>
         )}
       </div>
