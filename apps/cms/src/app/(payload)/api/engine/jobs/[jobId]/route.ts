@@ -171,9 +171,25 @@ export async function DELETE(
 
         // Delete their avatar objects from R2
         if (deleteFromR2 && orphanAvatars.rows.length > 0) {
-          const avatarKeys = orphanAvatars.rows
+          const avatarKeysRaw: string[] = orphanAvatars.rows
             .map((r: any) => r.avatar_r2_key as string)
             .filter(Boolean);
+          // Expand avatar variants: original_<hash>.jpg -> small_/medium_/large_
+          const avatarKeys: string[] = [];
+          for (const k of avatarKeysRaw) {
+            avatarKeys.push(k);
+            try {
+              const slash = k.lastIndexOf("/");
+              const dot = k.lastIndexOf(".");
+              if (slash > 0 && dot > slash) {
+                const basePath = k.substring(0, slash + 1);
+                const core = k.substring(slash + 1, dot).replace(/^original_/, "");
+                avatarKeys.push(`${basePath}small_${core}.jpg`);
+                avatarKeys.push(`${basePath}medium_${core}.jpg`);
+                avatarKeys.push(`${basePath}large_${core}.jpg`);
+              }
+            } catch {}
+          }
           if (avatarKeys.length > 0) {
             try {
               await deleteObjectsFromR2(avatarKeys);
