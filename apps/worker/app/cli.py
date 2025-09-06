@@ -635,6 +635,15 @@ async def _upsert_block(
         media_type = BlockMediaTypeEnum.unknown
     
     # Create the upsert statement with comprehensive metadata
+    # Compute origin_text string deterministically from URL or username
+    try:
+        page_like_url = getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or ''
+        src_type_enum = _detect_source_type(page_like_url)
+        username_guess = getattr(item, 'username', None) or _extract_username(page_like_url or '')
+        origin_text_value = (username_guess if src_type_enum == SourceTypeEnum.user else src_type_enum.value)
+    except Exception:
+        origin_text_value = None
+
     stmt = insert(Block).values(
         source_id=source_id,
         run_id=run_id,
@@ -666,10 +675,7 @@ async def _upsert_block(
         colors=getattr(item, 'colors', []),
         links=getattr(item, 'links', []),
         # Persisted origin and saved-by fields for CMS filters
-        origin_text=(
-            (getattr(item, 'username', None) or _extract_username(getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or ''))
-            if _detect_source_type(getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or '') == 'user' else _detect_source_type(getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or '')
-        ),
+        origin_text=origin_text_value,
         saved_by_usernames=','.join([u for u in getattr(item, 'saved_by', []) if isinstance(u, str)]) if isinstance(getattr(item, 'saved_by', None), list) else None,
     )
     
