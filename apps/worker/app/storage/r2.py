@@ -137,12 +137,29 @@ class R2Storage:
                 raise
             
     async def download_url(self, url: str) -> bytes:
-        """Download file from URL"""
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    raise ValueError(f"Failed to download {url}: {response.status}")
-                return await response.read()
+        """Download file from URL with robust headers and retries."""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        }
+        # Some Savee CDN endpoints require a referer to allow fetches
+        if "savee-cdn.com" in url:
+            headers["Referer"] = "https://savee.com/"
+
+        attempts = 0
+        last_err: Exception | None = None
+        while attempts < 3:
+            attempts += 1
+            try:
+                async with aiohttp.ClientSession(headers=headers) as session:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                        if response.status != 200:
+                            raise ValueError(f"Failed to download {url}: {response.status}")
+                        return await response.read()
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(min(4, attempts))
+        raise ValueError(f"Failed to download after retries: {url} | {last_err}")
                 
     async def upload_image(self, image_url: str, base_key: str) -> str:
         """Upload image with multiple sizes and thumbnails"""
@@ -251,7 +268,19 @@ class R2Storage:
         Returns the original avatar key.
         """
         try:
-            image_data = await self.download_url(avatar_url)
+            raw_bytes = await self.download_url(avatar_url)
+            # Normalize to JPEG to ensure correct content-type and stable hashing
+            try:
+                img = Image.open(BytesIO(raw_bytes))
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    img = img.convert('RGB')
+                buf = BytesIO()
+                img.save(buf, format='JPEG', quality=90, optimize=True)
+                image_data = buf.getvalue()
+            except Exception:
+                # If PIL fails, fall back to raw bytes (still store as JPEG extension)
+                image_data = raw_bytes
+
             content_hash = hashlib.sha256(image_data).hexdigest()[:16]
             # Avatars are normalized to JPEG for consistency
             base_key = f"users/{username}/avatar"
