@@ -2,6 +2,7 @@ import json
 import os
 import subprocess as sp
 import sys
+import time
 import urllib.request
 import urllib.error
 
@@ -45,6 +46,26 @@ def main() -> int:
     parallel = max(1, min(parallel, 4))
 
     procs = []
+
+    def post_log(run_id: str, log: dict) -> None:
+        cms = os.environ.get("CMS_URL", "").rstrip("/")
+        if not cms or not run_id:
+            return
+        token = os.environ.get("ENGINE_MONITOR_TOKEN", "")
+        data = json.dumps({"jobId": str(run_id), "log": log}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{cms}/api/engine/logs",
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                **({"Authorization": f"Bearer {token}"} if token else {}),
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10):
+                pass
+        except Exception:
+            pass
     idx = 0
     while idx < len(runs) or procs:
         # Spawn until pool is full
@@ -60,6 +81,15 @@ def main() -> int:
             max_attempts = 3
             delay = 2
             while True:
+                if attempt > 0:
+                    post_log(
+                        run_id,
+                        {
+                            "type": "RETRY",
+                            "status": "⏳",
+                            "message": f"Attempt {attempt+1}/{max_attempts}",
+                        },
+                    )
                 p = sp.Popen([
                     sys.executable,
                     "-m",
@@ -73,11 +103,14 @@ def main() -> int:
                 ])
                 code = p.wait()
                 if code == 0 or attempt >= max_attempts - 1:
+                    if code == 0:
+                        post_log(run_id, {"type": "RETRY", "status": "✓", "message": "Completed"})
                     break
                 attempt += 1
-                print(f"retry {attempt}/{max_attempts} in {delay}s for run {run_id}")
+                msg = f"Retry {attempt}/{max_attempts} in {delay}s"
+                print(msg, "for run", run_id)
+                post_log(run_id, {"type": "RETRY", "status": "⏳", "message": msg})
                 try:
-                    import time
                     time.sleep(delay)
                 except Exception:
                     pass
