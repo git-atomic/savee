@@ -137,9 +137,9 @@ export default function EngineView() {
     return (
       <div
         className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] whitespace-nowrap"
-        title="Backoff multiplier based on recent errors/zero-uploads"
+        title="Backoff multiplier applied from recent errors or zero uploads"
       >
-        x{multiplier}
+        Backoff: x{multiplier}
       </div>
     );
   };
@@ -621,12 +621,12 @@ export default function EngineView() {
                     </div>
                     <div
                       className="text-xs text-gray-500 mt-1"
-                      title={`Last: ${formatDateTime(job.lastRun)}\nNext: ${formatDateTime(job.nextRun)}`}
+                      title={`Last completed: ${formatDateTime(job.lastRun)}\nNext scheduled: ${formatDateTime(job.nextRun)}`}
                     >
-                      Next run: {formatDateTime(job.nextRun)}{" "}
+                      Next scheduled: {formatDateTime(job.nextRun)}{" "}
                       <span
                         className="ml-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
-                        title="Countdown until next eligible run"
+                        title="Countdown until the next scheduled run"
                       >
                         due in {formatDueIn(computeDueInSeconds(job.nextRun))}
                       </span>
@@ -716,9 +716,9 @@ export default function EngineView() {
                       <div className="flex items-center gap-2">
                         <div
                           className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap"
-                          title="Effective interval = base interval; may stretch when Adaptive backoff is on"
+                          title="Base interval used to schedule the next run (override or global)"
                         >
-                          Effective:{" "}
+                          Base interval:{" "}
                           {formatSeconds(
                             job.effectiveIntervalSeconds ??
                               job.intervalSeconds ??
