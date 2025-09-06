@@ -779,6 +779,18 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
     
     async with Session() as session:
         try:
+            # Ensure new filterable columns exist on blocks table for workers that
+            # may run before the CMS onInit hook executes (serverless cold starts)
+            try:
+                from sqlalchemy import text as _sql_text
+                await session.execute(_sql_text("ALTER TABLE blocks ADD COLUMN IF NOT EXISTS origin_text TEXT"))
+                await session.execute(_sql_text("ALTER TABLE blocks ADD COLUMN IF NOT EXISTS saved_by_usernames TEXT"))
+                await session.commit()
+            except Exception as _ensure_cols_err:
+                # Non-fatal: if another process is altering simultaneously or the
+                # table already has the columns, continue gracefully
+                logger.debug(f"Ensure blocks columns exist: {_ensure_cols_err}")
+
             # Resolve source and run
             if provided_run_id:
                 # Fetch run to get source_id
