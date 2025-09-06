@@ -264,27 +264,13 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                     # Attempt avatar upload to R2 when image available
                     try:
                         avatar_url = profile_data.get('profile_image_url')
-                        # Treat known default placeholders as non-avatars
-                        is_default = False
-                        try:
-                            if isinstance(avatar_url, str):
-                                import re as _re
-                                if _re.search(r"default-avatar", avatar_url, _re.IGNORECASE):
-                                    is_default = True
-                                if _re.search(r"st\.savee-cdn\.com/img/default-avatar-\d+\.jpg", avatar_url, _re.IGNORECASE):
-                                    is_default = True
-                        except Exception:
-                            is_default = False
-                        if avatar_url and not is_default:
+                        if avatar_url:
                             from app.storage.r2 import get_storage
                             storage = await get_storage()
                             avatar_key = await storage.upload_avatar(username, avatar_url)
                             # Keep original url for preview; also store R2 key for CMS usage
                             profile_data['profile_image_url'] = avatar_url
                             profile_data['avatar_r2_key'] = avatar_key
-                        elif avatar_url:
-                            # Keep default avatar URL so UI can proxy/mirror into R2 lazily
-                            profile_data['profile_image_url'] = avatar_url
                     except Exception as _avatar_err:
                         logger.debug(f"Avatar upload skipped for {username}: {_avatar_err}")
                     
@@ -370,18 +356,23 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
             if " - Savee" in title:
                 profile_data['display_name'] = title.replace(" - Savee", "").strip()
         
-        # Extract profile image URL with strong preference for real avatars CDN
-        # Prefer explicit CDN avatar only if not a default-avatar and matches user path
-        # Prefer 'dr.savee-cdn.com/avatars' first (custom avatars), then general avatars path
+        # Extract profile image URL - capture both custom and default avatars
+        # Prefer 'dr.savee-cdn.com/avatars' first (custom avatars), then st.savee-cdn.com/img (defaults)
         avatar_dr = re.search(r'https?://dr\.savee-cdn\.com/avatars/[^"\']+', html_content, re.IGNORECASE)
+        avatar_default = re.search(r'https?://st\.savee-cdn\.com/img/default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
         avatar_cdn = re.search(r'https?://[^"\']*savee-cdn\.com/(?:img/)?avatars/[^"\']+', html_content, re.IGNORECASE)
-        if avatar_dr and ('default-avatar' not in avatar_dr.group(0)):
+        
+        if avatar_dr:
+            # Custom avatar from dr.savee-cdn.com/avatars
             profile_data['profile_image_url'] = avatar_dr.group(0)
-        elif avatar_cdn and ('default-avatar' not in avatar_cdn.group(0)):
+        elif avatar_default:
+            # Default avatar from st.savee-cdn.com/img/default-avatar-N.jpg
+            profile_data['profile_image_url'] = avatar_default.group(0)
+        elif avatar_cdn:
+            # Fallback to any other savee-cdn avatar
             profile_data['profile_image_url'] = avatar_cdn.group(0)
         else:
-            # No proven avatar found; avoid picking unrelated images (colored placeholders, covers)
-            # Leave profile_image_url unset so the CMS shows a neutral placeholder.
+            # No avatar found; leave unset for neutral placeholder
             pass
 
         # Prefer DOM counters in the header toolbar (title="2,133 Saves", etc.)

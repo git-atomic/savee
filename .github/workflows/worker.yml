@@ -63,36 +63,36 @@ jobs:
           fi
           echo "Validating/normalizing cookies JSON via Python";
           python - <<'PY'
-import json, sys, re, ast
-p = 'apps/worker/savee_cookies.json'
-raw = open(p, 'r', encoding='utf-8').read()
+          import json, sys, re, ast
+          p = 'apps/worker/savee_cookies.json'
+          raw = open(p, 'r', encoding='utf-8').read()
 
-def write_ok(d):
-    open(p, 'w', encoding='utf-8').write(json.dumps(d))
-    print('Cookies JSON OK')
+          def write_ok(d):
+              open(p, 'w', encoding='utf-8').write(json.dumps(d))
+              print('Cookies JSON OK')
 
-try:
-    d = json.loads(raw)
-    write_ok(d)
-    sys.exit(0)
-except Exception:
-    pass
+          try:
+              d = json.loads(raw)
+              write_ok(d)
+              sys.exit(0)
+          except Exception:
+              pass
 
-try:
-    d = ast.literal_eval(raw)
-    write_ok(d)
-    sys.exit(0)
-except Exception:
-    pass
+          try:
+              d = ast.literal_eval(raw)
+              write_ok(d)
+              sys.exit(0)
+          except Exception:
+              pass
 
-fixed = re.sub(r'([,{]\s*)([A-Za-z0-9_\-]+)\s*:', r'\1"\2":', raw)
-fixed = fixed.replace("'", '"')
-try:
-    d = json.loads(fixed)
-    write_ok(d)
-except Exception:
-    print('Warning: Cookies JSON could not be normalized; using raw content')
-PY
+          fixed = re.sub(r'([,{]\s*)([A-Za-z0-9_\-]+)\s*:', r'\1"\2":', raw)
+          fixed = fixed.replace("'", '"')
+          try:
+              d = json.loads(fixed)
+              write_ok(d)
+          except Exception:
+              print('Warning: Cookies JSON could not be normalized; using raw content')
+          PY
 
       - name: Run one scrape cycle
         env:

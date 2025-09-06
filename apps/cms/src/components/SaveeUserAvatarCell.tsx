@@ -51,30 +51,13 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
       // Use proxy to keep domain, mirror if missing
       return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`;
     }
-    // Prefer dr.savee-cdn.com avatars if present (non-default)
-    const dr = rowData?.profile_image_url || rowData?.profileImageUrl;
-    const direct =
-      typeof dr === "string" && /dr\.savee-cdn\.com\/avatars\//i.test(dr)
-        ? dr
-        : rowData?.profile_image_url || rowData?.profileImageUrl;
-    if (typeof direct === "string" && /default-avatar-\d+\.jpg/i.test(direct)) {
-      try {
-        const file = direct.split("/").pop() || "default-avatar.jpg";
-        const key = `users/_defaults/${file}`;
-        return `/api/r2/presign?mode=proxy&key=${encodeURIComponent(
-          key
-        )}&fallback=${encodeURIComponent(direct)}`;
-      } catch {
-        return DEFAULT_AVATAR;
-      }
-    }
-    if (typeof direct === "string" && /default-avatar|st\.savee-cdn\.com\/img\//i.test(direct))
-      return DEFAULT_AVATAR;
-    return direct || DEFAULT_AVATAR;
+    // If no R2 key but have profile_image_url, show deterministic colored placeholder
+    // (All avatars should be uploaded to R2, so missing R2 key = fallback to colored circle)
+    return DEFAULT_AVATAR;
   });
 
   useEffect(() => {
-    if (!avatarUrl && rowData?.id) {
+    if (avatarUrl === DEFAULT_AVATAR && rowData?.id) {
       fetch(`/api/savee_users/${rowData.id}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((doc) => {
@@ -84,32 +67,8 @@ export default function SaveeUserAvatarCell({ rowData }: Props) {
             setAvatarUrl(
               `/api/r2/presign?mode=proxy&key=${encodeURIComponent(r2)}`
             );
-            return;
           }
-          if (doc.profile_image_url || doc.profileImageUrl) {
-            const direct = doc.profile_image_url || doc.profileImageUrl;
-            if (
-              typeof direct === "string" &&
-              /default-avatar-\d+\.jpg/i.test(direct)
-            ) {
-              try {
-                const file = direct.split("/").pop() || "default-avatar.jpg";
-                const key = `users/_defaults/${file}`;
-                setAvatarUrl(
-                  `/api/r2/presign?mode=proxy&key=${encodeURIComponent(key)}&fallback=${encodeURIComponent(direct)}`
-                );
-              } catch {
-                setAvatarUrl(DEFAULT_AVATAR);
-              }
-            } else if (
-              typeof direct === "string" &&
-              /default-avatar|st\.savee-cdn\.com\/img\//i.test(direct)
-            ) {
-              setAvatarUrl(DEFAULT_AVATAR);
-            } else {
-              setAvatarUrl(direct);
-            }
-          }
+          // If no R2 key, keep the colored placeholder (DEFAULT_AVATAR)
         })
         .catch(() => {});
     }
