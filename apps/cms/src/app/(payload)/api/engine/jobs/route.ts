@@ -24,6 +24,7 @@ interface JobData {
   intervalSeconds?: number; // explicit override stored on source
   disableBackoff?: boolean; // explicit setting stored on source
   effectiveIntervalSeconds?: number; // computed: override or global
+  backoffMultiplier?: number; // computed from recent run outcomes
 }
 
 export async function GET() {
@@ -51,6 +52,54 @@ export async function GET() {
 
         const latestRun = runs.docs[0];
 
+        // Backfill persisted filter fields on existing blocks (best-effort, lightweight)
+        try {
+          const db = (payload.db as any).pool;
+          await db.query(
+            `UPDATE blocks b
+             SET origin_text = COALESCE(origin_text,
+               CASE WHEN s.source_type = 'user' THEN s.username ELSE s.source_type END),
+               saved_by_usernames = COALESCE(saved_by_usernames, sub.usernames)
+             FROM sources s
+             LEFT JOIN (
+               SELECT ub.block_id, string_agg(u.username, ',') AS usernames
+               FROM user_blocks ub
+               JOIN savee_users u ON u.id = ub.user_id
+               GROUP BY ub.block_id
+             ) AS sub ON sub.block_id = b.id
+             WHERE b.source_id = s.id AND b.source_id = $1`,
+            [source.id]
+          );
+        } catch {}
+
+        // Compute backoff multiplier similar to monitor
+        let backoffMultiplier = 1;
+        try {
+          const recent = await payload.find({
+            collection: "runs",
+            where: { source: { equals: source.id } },
+            limit: 3,
+            sort: "-createdAt",
+          });
+          let errorCount = 0;
+          let zeroUploadCount = 0;
+          for (const r of recent.docs) {
+            const st = String((r as any).status || "").toLowerCase();
+            if (st === "error") errorCount += 1;
+            try {
+              const c =
+                typeof (r as any).counters === "string"
+                  ? JSON.parse((r as any).counters)
+                  : (r as any).counters;
+              if (c && Number(c.uploaded) === 0) zeroUploadCount += 1;
+            } catch {}
+          }
+          backoffMultiplier = Math.max(
+            1,
+            Math.pow(2, errorCount) * (1 + zeroUploadCount)
+          );
+        } catch {}
+
         // Compute nextRun using source overrides when possible
         const envMin = parseInt(
           process.env.MONITOR_MIN_INTERVAL_SECONDS || String(1 * 60 * 60),
@@ -65,7 +114,9 @@ export async function GET() {
           ? new Date(latestRun.completedAt).getTime()
           : undefined;
         const nextRunIso = completedAtMs
-          ? new Date(Math.max(completedAtMs + baseInterval * 1000, Date.now())).toISOString()
+          ? new Date(
+              Math.max(completedAtMs + baseInterval * 1000, Date.now())
+            ).toISOString()
           : undefined;
 
         return {
@@ -119,6 +170,7 @@ export async function GET() {
           intervalSeconds: (source as any).intervalSeconds ?? undefined,
           disableBackoff: (source as any).disableBackoff ?? undefined,
           effectiveIntervalSeconds: baseInterval,
+          backoffMultiplier,
           error: latestRun?.errorMessage || undefined,
         };
       })

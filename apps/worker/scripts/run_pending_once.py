@@ -55,17 +55,40 @@ def main() -> int:
             run_id = str(r.get("runId"))
             max_items = r.get("maxItems") or 0
             print("running:", run_id, url, max_items)
-            p = sp.Popen([
-                sys.executable,
-                "-m",
-                "app.cli",
-                "--start-url",
-                url,
-                "--max-items",
-                str(max_items),
-                "--run-id",
-                run_id,
-            ])
+            # Retry with simple exponential backoff on non-zero exit
+            attempt = 0
+            max_attempts = 3
+            delay = 2
+            while True:
+                p = sp.Popen([
+                    sys.executable,
+                    "-m",
+                    "app.cli",
+                    "--start-url",
+                    url,
+                    "--max-items",
+                    str(max_items),
+                    "--run-id",
+                    run_id,
+                ])
+                code = p.wait()
+                if code == 0 or attempt >= max_attempts - 1:
+                    break
+                attempt += 1
+                print(f"retry {attempt}/{max_attempts} in {delay}s for run {run_id}")
+                try:
+                    import time
+                    time.sleep(delay)
+                except Exception:
+                    pass
+                delay = min(delay * 2, 30)
+            # emulate pooled behavior: attach a dummy process object that already finished
+            class _Done:
+                def poll(self):
+                    return 0
+                def wait(self, timeout=None):
+                    return 0
+            procs.append(_Done())
             procs.append(p)
         # Wait for any to finish
         for i, p in list(enumerate(procs)):

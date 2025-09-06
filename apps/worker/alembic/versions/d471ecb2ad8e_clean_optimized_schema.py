@@ -87,6 +87,8 @@ def upgrade() -> None:
     sa.Column('content_metadata', sa.JSON(), nullable=True),
     sa.Column('r2_key', sa.Text(), nullable=True),
     sa.Column('error_message', sa.Text(), nullable=True),
+    sa.Column('origin_text', sa.Text(), nullable=True),
+    sa.Column('saved_by_usernames', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['run_id'], ['runs.id'], name=op.f('fk_blocks_run_id_runs')),

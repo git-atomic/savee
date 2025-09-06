@@ -60,6 +60,28 @@ export const Sources: CollectionConfig = {
         { label: "Error", value: "error" },
       ],
     },
+
+    // Scheduling (per-source overrides)
+    {
+      name: "intervalSeconds",
+      type: "number",
+      label: "Interval (seconds)",
+      admin: {
+        description:
+          "If set, overrides global MONITOR_MIN_INTERVAL_SECONDS for this job",
+      },
+      min: 10,
+    },
+    {
+      name: "disableBackoff",
+      type: "checkbox",
+      label: "Disable adaptive backoff",
+      defaultValue: false,
+      admin: {
+        description:
+          "If enabled, runs strictly on the interval without backoff",
+      },
+    },
   ],
   hooks: {
     beforeChange: [

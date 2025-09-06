@@ -182,7 +182,9 @@ export default function EngineView() {
   // Fetch metrics
   const fetchMetrics = async () => {
     try {
-      const response = await fetch("/api/engine/metrics", { cache: "no-store" });
+      const response = await fetch("/api/engine/metrics", {
+        cache: "no-store",
+      });
       if (response.ok) {
         const data = await response.json();
         if (data?.success) setMetrics(data as EngineMetrics);
@@ -403,8 +405,8 @@ export default function EngineView() {
         const parsed = parseInt(trimmed, 10);
         if (!Number.isNaN(parsed)) payload.intervalSeconds = parsed;
       } else {
-        // Empty means remove override
-        payload.intervalSeconds = undefined as any;
+        // Empty means remove override (clear field on server)
+        payload.intervalSeconds = null as any;
       }
     }
     if (typeof adaptiveBackoff === "boolean") {
@@ -494,12 +496,20 @@ export default function EngineView() {
         {/* Metrics summary */}
         {metrics && (
           <div className="mt-3 flex items-center gap-3 text-xs text-gray-700">
-            <span className="px-2 py-1 rounded bg-gray-100">Queued: {metrics.queued}</span>
-            <span className="px-2 py-1 rounded bg-gray-100">Running: {metrics.running}</span>
+            <span className="px-2 py-1 rounded bg-gray-100">
+              Queued: {metrics.queued}
+            </span>
+            <span className="px-2 py-1 rounded bg-gray-100">
+              Running: {metrics.running}
+            </span>
             {metrics.paused > 0 && (
-              <span className="px-2 py-1 rounded bg-gray-100">Paused: {metrics.paused}</span>
+              <span className="px-2 py-1 rounded bg-gray-100">
+                Paused: {metrics.paused}
+              </span>
             )}
-            <span className="px-2 py-1 rounded bg-gray-100">Workers: {metrics.workerParallelism}</span>
+            <span className="px-2 py-1 rounded bg-gray-100">
+              Workers: {metrics.workerParallelism}
+            </span>
           </div>
         )}
       </div>

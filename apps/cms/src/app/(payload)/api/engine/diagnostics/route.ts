@@ -18,7 +18,10 @@ function isAuthorized(req: NextRequest): boolean {
 
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { success: false, error: "Unauthorized" },
+      { status: 401 }
+    );
   }
   const env = process.env;
   const reqInt = (key: string, def?: number) => {
@@ -36,11 +39,15 @@ export async function GET(req: NextRequest) {
       R2_BUCKET_NAME: Boolean(env.R2_BUCKET_NAME),
       ENGINE_MONITOR_TOKEN: Boolean(env.ENGINE_MONITOR_TOKEN),
       CORS_ORIGINS: Boolean(env.CORS_ORIGINS),
-      MONITOR_MIN_INTERVAL_SECONDS: reqInt("MONITOR_MIN_INTERVAL_SECONDS", 3600),
-      MONITOR_MAX_INTERVAL_SECONDS: reqInt("MONITOR_MAX_INTERVAL_SECONDS", 21600),
+      MONITOR_MIN_INTERVAL_SECONDS: reqInt(
+        "MONITOR_MIN_INTERVAL_SECONDS",
+        3600
+      ),
+      MONITOR_MAX_INTERVAL_SECONDS: reqInt(
+        "MONITOR_MAX_INTERVAL_SECONDS",
+        21600
+      ),
       WORKER_PARALLELISM: reqInt("WORKER_PARALLELISM", 2),
     },
   });
 }
-
-

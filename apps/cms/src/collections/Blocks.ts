@@ -1,6 +1,4 @@
 import type { CollectionConfig } from "payload";
-import BlockOriginFilter from "../components/filters/BlockOriginFilter";
-import BlockSavedByFilter from "../components/filters/BlockSavedByFilter";
 
 let didBackfillFilters = false;
 
@@ -45,23 +43,10 @@ export const Blocks: CollectionConfig = {
       "createdAt",
     ],
     description: "Individual scraped content blocks from Savee.it",
-    listSearchableFields: [
-      "title",
-      "url", 
-      "og_title",
-      "og_description",
-    ],
+    listSearchableFields: ["title", "url", "og_title", "og_description"],
     listFilterableFields: [
-      {
-        name: "origin_text",
-        label: "Savee User / Origin",
-        component: BlockOriginFilter,
-      },
-      {
-        name: "saved_by_usernames", 
-        label: "Saved By",
-        component: BlockSavedByFilter,
-      },
+      "origin_text",
+      "saved_by_usernames", 
       "media_type",
       "status",
       "source",
