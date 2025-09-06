@@ -2,25 +2,35 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPayload } from "payload";
 import config from "@payload-config";
 
-function isAuthorized(req: NextRequest): boolean {
+async function isAuthorized(req: NextRequest): Promise<boolean> {
+  // Check for external monitor token first (for GitHub Actions)
   const token = process.env.ENGINE_MONITOR_TOKEN;
-  if (!token) return true; // allow in dev if not set
-  const auth = req.headers.get("authorization") || "";
-  if (auth.toLowerCase().startsWith("bearer ")) {
-    const provided = auth.slice(7).trim();
-    if (provided === token) return true;
+  if (token) {
+    const auth = req.headers.get("authorization") || "";
+    if (auth.toLowerCase().startsWith("bearer ")) {
+      const provided = auth.slice(7).trim();
+      if (provided === token) return true;
+    }
+    try {
+      const url = new URL(req.url);
+      const t = url.searchParams.get("token");
+      if (t && t === token) return true;
+    } catch {}
   }
+  
+  // For admin panel access, check Payload session
   try {
-    const url = new URL(req.url);
-    const t = url.searchParams.get("token");
-    if (t && t === token) return true;
-  } catch {}
-  return false;
+    const payload = await getPayload({ config });
+    const { user } = await payload.auth({ headers: req.headers });
+    return !!user; // Allow any authenticated admin user
+  } catch {
+    return !token; // Allow unauthenticated access only if no token is set (dev mode)
+  }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    if (!isAuthorized(request)) {
+    if (!(await isAuthorized(request))) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
         { status: 401 }

@@ -46,7 +46,7 @@ export const Blocks: CollectionConfig = {
     listSearchableFields: ["title", "url", "og_title", "og_description"],
     listFilterableFields: [
       "origin_text",
-      "saved_by_usernames", 
+      "saved_by_usernames",
       "media_type",
       "status",
       "source",
