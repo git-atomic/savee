@@ -16,10 +16,26 @@ export async function GET(request: NextRequest) {
     const username = url.searchParams.get("username") || undefined;
     const sourceId = url.searchParams.get("sourceId") || undefined;
     const runId = url.searchParams.get("runId") || undefined;
+    const externalId = url.searchParams.get("externalId") || undefined; // allow lookup by external_id
     const limit = Math.min(
       parseInt(url.searchParams.get("limit") || "50", 10) || 50,
       200
     );
+    // Cursor for keyset pagination: base64({ savedAt: ISO|null, id: number })
+    const cursorParam = url.searchParams.get("cursor");
+    let cursorSavedAt: Date | null = null;
+    let cursorId: number | null = null;
+    if (cursorParam) {
+      try {
+        const decoded = JSON.parse(
+          Buffer.from(cursorParam, "base64").toString("utf-8")
+        );
+        if (decoded && decoded.savedAt)
+          cursorSavedAt = new Date(decoded.savedAt);
+        if (decoded && (decoded.id || decoded.id === 0))
+          cursorId = Number(decoded.id);
+      } catch {}
+    }
 
     const params: any[] = [];
     const whereClauses: string[] = [];
@@ -40,7 +56,19 @@ export async function GET(request: NextRequest) {
       whereClauses.push("b.run_id = $" + (params.length + 1));
       params.push(parseInt(runId));
     }
+    if (externalId) {
+      whereClauses.push("b.external_id = $" + (params.length + 1));
+      params.push(externalId);
+    }
 
+    // Apply keyset pagination if cursor provided
+    if (cursorSavedAt && cursorId) {
+      params.push(cursorSavedAt);
+      params.push(cursorId);
+      whereClauses.push(
+        `(b.saved_at < $${params.length - 1} OR (b.saved_at = $${params.length - 1} AND b.id < $${params.length}))`
+      );
+    }
     const whereSQL = whereClauses.length
       ? `WHERE ${whereClauses.join(" AND ")}`
       : "";
@@ -59,10 +87,25 @@ export async function GET(request: NextRequest) {
     params.push(limit);
 
     const result = await db.query(query, params);
+    let nextCursor: string | null = null;
+    if (result.rows.length === limit) {
+      const last = result.rows[result.rows.length - 1];
+      if (last) {
+        try {
+          nextCursor = Buffer.from(
+            JSON.stringify({
+              savedAt: last.saved_at || last.savedAt || null,
+              id: last.id,
+            })
+          ).toString("base64");
+        } catch {}
+      }
+    }
     return NextResponse.json({
       success: true,
       count: result.rows.length,
       blocks: result.rows,
+      nextCursor,
     });
   } catch (error) {
     console.error("Error fetching blocks by origin:", error);
