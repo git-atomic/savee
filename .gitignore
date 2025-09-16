@@ -320,3 +320,4 @@ secrets/
 
 # Docker
 docker-compose.override.yml
+NUL
