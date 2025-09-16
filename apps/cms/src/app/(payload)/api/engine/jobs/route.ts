@@ -3,6 +3,11 @@ import { getPayload } from "payload";
 import config from "@payload-config";
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
+  // Dev-only bypass to avoid 401s during local development
+  if (process.env.NODE_ENV !== "production") {
+    return true;
+  }
+
   // Check for external monitor token first (for GitHub Actions)
   const token = process.env.ENGINE_MONITOR_TOKEN;
   if (token) {
@@ -17,7 +22,7 @@ async function isAuthorized(req: NextRequest): Promise<boolean> {
       if (t && t === token) return true;
     } catch {}
   }
-  
+
   // For admin panel access, check Payload session
   try {
     const payload = await getPayload({ config });
@@ -83,6 +88,13 @@ export async function GET(request: NextRequest) {
         });
 
         const latestRun = runs.docs[0];
+        const latestUpdatedAt = latestRun?.updatedAt
+          ? new Date(latestRun.updatedAt).getTime()
+          : undefined;
+        const isStaleRunning =
+          latestRun?.status === "running" &&
+          typeof latestUpdatedAt === "number" &&
+          Date.now() - latestUpdatedAt > 5 * 60 * 1000; // 5 minutes stale threshold
 
         // Backfill persisted filter fields on existing blocks (best-effort, lightweight)
         try {
@@ -164,7 +176,7 @@ export async function GET(request: NextRequest) {
             ? source.username || "user"
             : source.sourceType) as string,
           status:
-            latestRun?.status === "running"
+            latestRun?.status === "running" && !isStaleRunning
               ? "running"
               : (source.status as
                     | "active"
@@ -183,7 +195,7 @@ export async function GET(request: NextRequest) {
                         | "paused"
                         | "error"
                         | "completed"),
-          runStatus: latestRun?.status as string, // Add separate run status for pause badge
+          runStatus: isStaleRunning ? "stale" : (latestRun?.status as string), // expose stale
           counters:
             typeof latestRun?.counters === "string"
               ? (JSON.parse(latestRun.counters) as {

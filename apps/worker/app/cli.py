@@ -148,6 +148,22 @@ async def _item_exists_globally(session: AsyncSession, external_id: str) -> bool
         return False
 
 
+async def _item_needs_reupload(session: AsyncSession, external_id: str) -> bool:
+    """Return True if a block exists globally but has no r2_key yet."""
+    try:
+        result = await session.execute(
+            select(Block.r2_key).where(Block.external_id == external_id)
+        )
+        row = result.first()
+        if not row:
+            return False
+        r2_key = row[0]
+        return not bool(r2_key)
+    except Exception as e:
+        logger.error(f"Error checking if item needs reupload: {e}")
+        return False
+
+
 def _detect_source_type(url: str) -> SourceTypeEnum:
     """Detect source type from URL."""
     if not url:
@@ -174,16 +190,16 @@ async def _send_simple_log_to_cms(run_id: int, log_data: dict):
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.post(
-                f"{cms_url.rstrip('/')}/api/engine/logs",
-                json={
-                    "jobId": str(run_id),
-                    "log": log_data,
-                },
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as _:
-                pass
+        # Push to in-process SSE bus (best-effort)
+        try:
+            async with aiohttp.ClientSession(headers=headers) as session:
+                await session.post(
+                    f"{cms_url.rstrip('/')}/api/engine/logs",
+                    json={"jobId": str(run_id), "log": log_data},
+                    timeout=aiohttp.ClientTimeout(total=5)
+                )
+        except Exception:
+            pass
     except Exception:
         # Fail silently if CMS is unavailable
         pass
@@ -694,13 +710,15 @@ async def _upsert_block(
     )
     
     # On conflict, update fields 
+    from sqlalchemy import case
     stmt = stmt.on_conflict_do_update(
         index_elements=['external_id'],
         set_={
             'title': stmt.excluded.title,
             'description': stmt.excluded.description,
             'status': stmt.excluded.status,
-            'r2_key': stmt.excluded.r2_key,
+            # Prefer new non-null r2_key; otherwise keep existing
+            'r2_key': case((stmt.excluded.r2_key.isnot(None), stmt.excluded.r2_key), else_=Block.r2_key),
             'og_title': stmt.excluded.og_title,
             'og_description': stmt.excluded.og_description,
             'og_image_url': stmt.excluded.og_image_url,
@@ -930,8 +948,9 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                         await session.commit()
                         continue
 
-                    # Skip if already exists globally (across previous runs)
-                    if await _item_exists_globally(session, item.external_id):
+                    # Skip if already exists globally (across previous runs),
+                    # unless it exists without an R2 key (then re-upload)
+                    if await _item_exists_globally(session, item.external_id) and not await _item_needs_reupload(session, item.external_id):
                         skipped_count += 1
                         counters['skipped'] = skipped_count
                         # Keep 'found' aligned with processed_count in real-time
@@ -1098,7 +1117,8 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                         except Exception:
                             is_current_run = True
 
-                        if is_current_run:
+                        # Count as uploaded only if we actually produced an R2 key in this run
+                        if r2_key:
                             counters['uploaded'] = counters.get('uploaded', 0) + 1
                         else:
                             skipped_count += 1

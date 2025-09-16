@@ -163,6 +163,32 @@ class SaveeSession:
             except Exception:
                 pass
 
+        # Final fallback: repo default cookies file
+        if not cookies_loaded:
+            try:
+                import os
+                from pathlib import Path as _Path
+                default_cookie_file = _Path(__file__).resolve().parents[2] / 'savee_cookies.json'
+                if default_cookie_file.exists():
+                    data = json.loads(default_cookie_file.read_text(encoding='utf-8'))
+                    if isinstance(data, list):
+                        for c in data:
+                            if 'name' in c and 'value' in c:
+                                domain = c.get('domain', '.savee.com')
+                                if domain.startswith('.'):  # playwright expects domain without leading dot
+                                    domain = domain[1:]
+                                await self.context.add_cookies([{
+                                    'name': c['name'],
+                                    'value': c['value'],
+                                    'domain': domain,
+                                    'path': c.get('path', '/'),
+                                    'httpOnly': c.get('httpOnly', False),
+                                    'secure': c.get('secure', True),
+                                }])
+                        cookies_loaded = True
+            except Exception:
+                pass
+
         # Fallback to any hardcoded cookies (discouraged)
         if self.cookies:
             for name, value in self.cookies.items():

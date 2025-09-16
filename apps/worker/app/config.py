@@ -7,6 +7,8 @@ from typing import List, Optional, Dict, Any
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 from dotenv import load_dotenv
+import json
+import re
 
 # Load environment variables
 load_dotenv()
@@ -65,9 +67,14 @@ class Settings(BaseSettings):
     # API
     API_HOST: str = Field(default="0.0.0.0", description="API host")
     API_PORT: int = Field(default=8000, description="API port")
-    CORS_ORIGINS: List[str] = Field(
-        default=["*"], 
-        description="CORS allowed origins"
+    # Read raw env value under the same env name to avoid pydantic-settings
+    # attempting to JSON-decode complex types before our custom parsing.
+    CORS_ORIGINS_RAW: Optional[str] = Field(default=None, alias="CORS_ORIGINS")
+    # Store parsed list in a differently named field so the env loader
+    # does not try to bind the same ENV var again (which caused JSONDecodeError)
+    CORS_ORIGIN_LIST: List[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Parsed CORS origins list"
     )
     
     # Monitoring
@@ -149,6 +156,52 @@ class Settings(BaseSettings):
         if 'SCRAPER_DELAY_MIN' in values and v < values['SCRAPER_DELAY_MIN']:
             raise ValueError('SCRAPER_DELAY_MAX must be greater than SCRAPER_DELAY_MIN')
         return v
+
+    @staticmethod
+    def _parse_cors_origins(raw: Optional[str]) -> List[str]:
+        """Accept JSON array, comma/space-separated string, or empty value."""
+        if raw is None:
+            return ["*"]
+        if isinstance(raw, str):
+            s = raw.strip()
+            if s == "":
+                return ["*"]
+            # Try JSON first
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except Exception:
+                # Not JSON → treat as delimited string
+                pass
+            parts = [p.strip() for p in re.split(r"[,\s]+", s) if p.strip()]
+            return parts if parts else ["*"]
+        # Any other type → fallback
+        return ["*"]
+
+    def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
+        # Parse the raw env value into the normalized list
+        try:
+            self.CORS_ORIGIN_LIST = self._parse_cors_origins(self.CORS_ORIGINS_RAW)
+        except Exception:
+            self.CORS_ORIGIN_LIST = ["*"]
+
+        # Provide a sensible default for COOKIES_PATH pointing to apps/worker/savee_cookies.json
+        # if the env var is not provided but the file exists in the repo.
+        try:
+            if not self.COOKIES_PATH:
+                from pathlib import Path as _Path
+                default_cookie_file = _Path(__file__).resolve().parent.parent / 'savee_cookies.json'
+                if default_cookie_file.exists():
+                    self.COOKIES_PATH = str(default_cookie_file)
+        except Exception:
+            # Non-fatal; leave COOKIES_PATH unset if resolution fails
+            pass
+
+    # Backward-compatible accessor
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        return self.CORS_ORIGIN_LIST
     
     @property
     def async_database_url(self) -> str:

@@ -8,6 +8,8 @@ import React from "react";
 
 import { importMap } from "./admin/importMap.js";
 import "./custom.scss";
+// Engine styles are scoped via the `.engine-view` class inside the Engine page only
+import "./engine.css";
 import ClientBootstrap from "@/components/ClientBootstrap";
 
 type Args = {

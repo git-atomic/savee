@@ -2,6 +2,37 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { parseSaveeUrl } from "../lib/url-utils";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { ModeToggle } from "@/components/ModeToggle";
 
 // Types
 interface JobData {
@@ -246,6 +277,15 @@ export default function EngineView() {
     const newExpanded = new Set(expandedJobs);
     if (newExpanded.has(jobId)) {
       newExpanded.delete(jobId);
+      // Close SSE for this job if open
+      const job = jobsRef.current.find((j) => j.id === jobId);
+      const runId = job?.runId;
+      if (runId && sseRef.current[runId]) {
+        try {
+          sseRef.current[runId]?.close();
+        } catch {}
+        sseRef.current[runId] = null;
+      }
     } else {
       newExpanded.add(jobId);
       // Find the job and use its runId for fetching logs
@@ -259,22 +299,88 @@ export default function EngineView() {
     setExpandedJobs(newExpanded);
   };
 
-  // Fetch job logs using runId but store by sourceId for display
+  // SSE subscription map and aborters
+  const sseRef = useRef<Record<string, EventSource | null>>({});
+
+  // Fetch snapshot + attach SSE stream
   const fetchJobLogs = async (runId: string) => {
+    // 1) initial snapshot for fast paint
     try {
       const response = await fetch(`/api/engine/logs?runId=${runId}`, {
         cache: "no-store",
       });
       if (response.ok) {
         const data = await response.json();
-        // Find which job this runId belongs to using ref
         const job = jobsRef.current.find((j) => j.runId === runId);
-        if (job) {
-          setLogs((prev) => ({ ...prev, [job.id]: data.logs || [] }));
-        }
+        if (job) setLogs((prev) => ({ ...prev, [job.id]: data.logs || [] }));
       }
-    } catch (error) {
-      console.error("Failed to fetch logs:", error);
+    } catch (e) {
+      // non-fatal
+    }
+
+    // 2) attach SSE for true realtime
+    try {
+      // Close existing
+      Object.entries(sseRef.current).forEach(([k, es]) => {
+        if (k === runId && es) {
+          try {
+            es.close();
+          } catch {}
+          sseRef.current[k] = null;
+        }
+      });
+      const es = new EventSource(
+        `/api/engine/logs/stream?runId=${encodeURIComponent(runId)}`
+      );
+      sseRef.current[runId] = es;
+      es.onmessage = (ev) => {
+        // Only process named events in onmessage if server uses default event
+        try {
+          const job = jobsRef.current.find((j) => j.runId === runId);
+          if (!job) return;
+          const data = JSON.parse(ev.data || "{}");
+          if (!data || !data.type) return;
+          setLogs((prev) => {
+            const arr = (prev[job.id] || []).slice();
+            arr.push({
+              timestamp: data.timestamp || new Date().toISOString(),
+              type: data.type,
+              url: data.url || "",
+              status: data.status || "",
+              timing: data.timing,
+              message: data.message,
+            });
+            return { ...prev, [job.id]: arr };
+          });
+        } catch {}
+      };
+      es.addEventListener("log", (ev: MessageEvent) => {
+        try {
+          const job = jobsRef.current.find((j) => j.runId === runId);
+          if (!job) return;
+          const data = JSON.parse(ev.data || "{}");
+          setLogs((prev) => {
+            const arr = (prev[job.id] || []).slice();
+            arr.push({
+              timestamp: data.timestamp || new Date().toISOString(),
+              type: data.type,
+              url: data.url || "",
+              status: data.status || "",
+              timing: data.timing,
+              message: data.message,
+            });
+            return { ...prev, [job.id]: arr };
+          });
+        } catch {}
+      });
+      es.addEventListener("heartbeat", () => {
+        /* keepalive indicator if needed */
+      });
+      es.onerror = () => {
+        /* fallback is periodic polling already in place */
+      };
+    } catch (e) {
+      // Ignore; fallback polling remains
     }
   };
 
@@ -492,624 +598,548 @@ export default function EngineView() {
   }, [expandedJobs]); // Only depend on expandedJobs, not jobs
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Scraping Engine</h1>
-        <p className="text-gray-600">
-          Manage and monitor your Savee.it scraping jobs
-        </p>
-        {/* Metrics summary */}
-        {metrics && (
-          <div className="mt-3 flex items-center gap-3 text-xs text-gray-700">
-            <span className="px-2 py-1 rounded bg-gray-100">
-              Queued: {metrics.queued}
-            </span>
-            <span className="px-2 py-1 rounded bg-gray-100">
-              Running: {metrics.running}
-            </span>
-            {metrics.paused > 0 && (
-              <span className="px-2 py-1 rounded bg-gray-100">
+    <ThemeProvider>
+      <div className="max-w-6xl mx-auto p-6 space-y-8" suppressHydrationWarning>
+        {/* Header */}
+        <Card>
+          <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <CardTitle>Scraping Engine</CardTitle>
+              <CardDescription>
+                Manage and monitor your Savee scraping jobs
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <ModeToggle />
+            </div>
+          </CardHeader>
+          {metrics && (
+            <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div className="rounded-md border bg-muted/40 p-2">
+                Queued: {metrics.queued}
+              </div>
+              <div className="rounded-md border bg-muted/40 p-2">
+                Running: {metrics.running}
+              </div>
+              <div className="rounded-md border bg-muted/40 p-2">
                 Paused: {metrics.paused}
-              </span>
-            )}
-            <span className="px-2 py-1 rounded bg-gray-100">
-              Workers: {metrics.workerParallelism}
-            </span>
-          </div>
-        )}
-      </div>
+              </div>
+              <div className="rounded-md border bg-muted/40 p-2">
+                Workers: {metrics.workerParallelism}
+              </div>
+            </CardContent>
+          )}
+        </Card>
 
-      {/* Add New Job Form */}
-      <div className="bg-white p-6 rounded-lg border border-gray-200">
-        <h2 className="text-lg font-semibold mb-4">Add New Job</h2>
-        <form onSubmit={startJob} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* URL Input */}
-            <div className="lg:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Savee.it URL
-              </label>
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://savee.it, https://savee.it/pop, https://savee.it/username"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-
-            {/* Source Type */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Type (Auto-detected)
-              </label>
-              <select
-                value={sourceType}
-                onChange={(e) =>
-                  setSourceType(e.target.value as "home" | "pop" | "user")
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="home">Home Feed</option>
-                <option value="pop">Popular</option>
-                <option value="user">User Profile</option>
-              </select>
-            </div>
-
-            {/* Max Items */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Max Items (blank = all)
-              </label>
-              <input
-                type="number"
-                value={maxItems}
-                onChange={(e) =>
-                  setMaxItems(
-                    e.target.value === "" ? "" : parseInt(e.target.value)
-                  )
-                }
-                placeholder="All found"
-                min="1"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting || !url.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-md font-medium"
-          >
-            {isSubmitting ? "Adding Job..." : "Add Job"}
-          </button>
-        </form>
-      </div>
-
-      {/* Jobs List */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <div className="p-6 border-b border-gray-200 flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold">Jobs ({jobs.length})</h2>
-          <input
-            type="text"
-            placeholder="Search jobs (url or username)"
-            className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded text-sm"
-            value={jobQuery}
-            onChange={(e) => setJobQuery(e.currentTarget.value)}
-          />
-        </div>
-
-        {jobs.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">
-            No jobs yet. Add your first job above.
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-200">
-            {jobs
-              .filter((j) => {
-                if (!jobQuery.trim()) return true;
-                const q = jobQuery.trim().toLowerCase();
-                return (
-                  (j.url || "").toLowerCase().includes(q) ||
-                  (j.username || "").toLowerCase().includes(q)
-                );
-              })
-              .map((job) => (
-                <div key={job.id} className="p-6">
-                  {/* Job Header */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}
-                        >
-                          {job.status.toUpperCase()}
-                        </span>
-                        {/* Pause Badge - Show when run is paused */}
-                        {job.runStatus === "paused" && (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 flex items-center gap-1">
-                            <span>⏸</span>
-                            PAUSED
-                          </span>
-                        )}
-                        <span className="text-sm text-gray-600">
-                          {getSourceTypeDisplay(job.sourceType, job.username)}
-                        </span>
-                      </div>
-                      <div className="text-sm font-mono text-gray-800">
-                        {job.url}
-                      </div>
-                      <div
-                        className="text-xs text-gray-500 mt-1"
-                        title={`Last completed: ${formatDateTime(job.lastRun)}\nNext scheduled: ${formatDateTime(job.nextRun)}`}
-                      >
-                        Next scheduled: {formatDateTime(job.nextRun)}{" "}
-                        <span
-                          className="ml-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
-                          title="Countdown until the next scheduled run"
-                        >
-                          due in {formatDueIn(computeDueInSeconds(job.nextRun))}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Job Controls */}
-                    <div className="flex items-center gap-2">
-                      {/* Pause Button - Available for active AND running jobs, but not if already paused */}
-                      {(job.status === "active" || job.status === "running") &&
-                        job.runStatus !== "paused" && (
-                          <button
-                            onClick={() => pauseJob(job.id)}
-                            className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded text-sm hover:bg-yellow-200"
-                            title="Pause Job"
-                          >
-                            Pause
-                          </button>
-                        )}
-
-                      {/* Resume Button - Only for paused jobs */}
-                      {(job.status === "paused" ||
-                        job.runStatus === "paused") && (
-                        <button
-                          onClick={() => resumeJob(job.id)}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
-                          title="Resume Job"
-                        >
-                          Resume
-                        </button>
-                      )}
-
-                      {/* Run Now Button - Only for active jobs */}
-                      {job.status === "active" && (
-                        <button
-                          onClick={() => runNowJob(job.id)}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
-                          title="Run Now"
-                        >
-                          Run Now
-                        </button>
-                      )}
-
-                      {/* Edit Button - Always visible; works via prompt; prefer paused */}
-                      <button
-                        onClick={() => editJob(job.id, job.url)}
-                        className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm hover:bg-purple-200"
-                        title="Edit URL and/or Max Items, then restart"
-                      >
-                        Edit
-                      </button>
-
-                      {/* Info Button */}
-                      <button
-                        className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200"
-                        title={`Last run: ${formatDateTime(job.lastRun)}\nNext: ${formatDateTime(job.nextRun)}`}
-                      >
-                        Info
-                      </button>
-                      {/* Inline schedule controls */}
-                      <div className="flex items-center gap-3 ml-2">
-                        <div className="flex flex-col">
-                          <input
-                            type="number"
-                            min={10}
-                            placeholder="Interval (s)"
-                            defaultValue={
-                              (job.intervalSeconds ??
-                                job.effectiveIntervalSeconds ??
-                                undefined) as any
-                            }
-                            onBlur={(e) =>
-                              updateScheduleInline(
-                                job.id,
-                                e.currentTarget.value,
-                                undefined
-                              )
-                            }
-                            className="w-28 px-2 py-1 border border-gray-300 rounded text-sm"
-                            title="Override interval in seconds (blank=global)"
-                          />
-                          <span className="text-[10px] text-gray-500">
-                            seconds (base)
-                          </span>
-                        </div>
-                        {/* Effective interval chip */}
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap"
-                            title="Base interval used to schedule the next run (override or global)"
-                          >
-                            Base interval:{" "}
-                            {formatSeconds(
-                              job.effectiveIntervalSeconds ??
-                                job.intervalSeconds ??
-                                0
-                            )}
-                          </div>
-                          {renderBackoffChip(job)}
-                        </div>
-                        <label
-                          className="flex items-center gap-1 text-xs text-gray-700"
-                          title="Adaptive backoff reduces frequency after errors/zero-uploads"
-                        >
-                          <input
-                            type="checkbox"
-                            defaultChecked={!job.disableBackoff}
-                            onChange={(e) =>
-                              updateScheduleInline(
-                                job.id,
-                                undefined,
-                                e.currentTarget.checked
-                              )
-                            }
-                          />
-                          Adaptive
-                        </label>
-                      </div>
-
-                      {/* Delete */}
-                      <button
-                        onClick={() =>
-                          setDeleteConfirm({
-                            jobId: job.id,
-                            confirmUrl: "",
-                            deleteFromDb: true,
-                            deleteFromR2: true,
-                            deleteUsers: true,
-                          })
-                        }
-                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200"
-                        title="Delete Job (requires URL confirmation)"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Counters */}
-                  <div className="flex items-center gap-6 mb-4 text-sm">
-                    <span className="text-green-600">
-                      <strong>{job.counters.uploaded}</strong> uploaded
-                    </span>
-                    <span className="text-blue-600">
-                      <strong>{job.counters.found}</strong> processed
-                    </span>
-                    {(job.counters.skipped ?? 0) > 0 && (
-                      <span className="text-gray-600">
-                        <strong>{job.counters.skipped}</strong> skipped
-                      </span>
-                    )}
-                    {job.counters.errors > 0 && (
-                      <span className="text-red-600">
-                        <strong>{job.counters.errors}</strong> errors
-                      </span>
-                    )}
-                    <span className="text-gray-600">
-                      Max: <strong>{job.maxItems}</strong>
-                    </span>
-                  </div>
-
-                  {/* Error Message */}
-                  {job.status === "error" && job.error && (
-                    <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
-                      <div className="text-red-800 text-sm font-medium">
-                        Error:
-                      </div>
-                      <div className="text-red-700 text-sm">{job.error}</div>
-                    </div>
-                  )}
-
-                  {/* Logs Toggle */}
-                  <button
-                    onClick={() => toggleJobLogs(job.id)}
-                    className="flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm"
-                  >
-                    <span
-                      className={`transform transition-transform ${expandedJobs.has(job.id) ? "rotate-90" : ""}`}
-                    >
-                      ▶
-                    </span>
-                    Logs
-                  </button>
-
-                  {/* Logs Content */}
-                  {expandedJobs.has(job.id) && (
-                    <div className="mt-4">
-                      <div className="bg-gray-900 rounded-lg border border-gray-700">
-                        {/* Header */}
-                        <div className="px-4 py-3 bg-gray-800 rounded-t-lg border-b border-gray-700">
-                          <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-medium text-gray-100">
-                              Real-time Logs
-                            </h4>
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                              <span className="text-xs text-gray-400">
-                                Live
-                              </span>
-                              <button
-                                onClick={() => {
-                                  // Jump to latest and re-enable auto-scroll
-                                  logsEndRef.current[job.id]?.scrollIntoView({
-                                    behavior: "smooth",
-                                    block: "end",
-                                  });
-                                  setIsAutoScroll((prev) => ({
-                                    ...prev,
-                                    [job.id]: true,
-                                  }));
-                                }}
-                                className="ml-3 text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded"
-                                title="Jump to latest log"
-                              >
-                                Jump to latest
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Logs Container */}
-                        <div
-                          className="max-h-80 overflow-y-auto scroll-smooth bg-black/70 border-t border-gray-700"
-                          style={{ scrollBehavior: "smooth" }}
-                          ref={(el) => {
-                            if (el) {
-                              logsContainerRef.current[job.id] = el;
-                            }
-                          }}
-                          onScroll={(e) => {
-                            const el = e.currentTarget;
-                            const nearBottom =
-                              el.scrollHeight - el.scrollTop - el.clientHeight <
-                              40;
-                            setIsAutoScroll((prev) => ({
-                              ...prev,
-                              [job.id]: nearBottom,
-                            }));
-                          }}
-                        >
-                          {logs[job.id]?.length ? (
-                            <div className="p-4 space-y-3">
-                              {logs[job.id].map((log, idx) => {
-                                const isNewBlock =
-                                  idx === 0 ||
-                                  logs[job.id][idx - 1]?.type === "COMPLETE";
-
-                                return (
-                                  <div key={idx}>
-                                    {/* Block Separator */}
-                                    {isNewBlock && idx > 0 && (
-                                      <div className="border-t border-gray-700 my-4"></div>
-                                    )}
-
-                                    {/* Log Entry */}
-                                    <div className="font-mono text-sm text-gray-200 bg-gray-900/70 border border-gray-700 rounded px-3 py-2">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        {/* [Date | Time] Badge */}
-                                        <span className="inline-flex items-center px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs">
-                                          [{formatDateOnly(log.timestamp)} |{" "}
-                                          {formatTimeOnly(log.timestamp)}]
-                                        </span>
-
-                                        {/* (TYPE) Badge */}
-                                        <span
-                                          className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                                            log.type === "STARTING"
-                                              ? "bg-blue-600 text-blue-100"
-                                              : log.type === "FETCH"
-                                                ? "bg-amber-600 text-amber-100"
-                                                : log.type === "SCRAPE"
-                                                  ? "bg-purple-600 text-purple-100"
-                                                  : log.type === "COMPLETE"
-                                                    ? "bg-green-600 text-green-100"
-                                                    : log.type ===
-                                                        "WRITE/UPLOAD"
-                                                      ? "bg-indigo-600 text-indigo-100"
-                                                      : log.type === "ERROR"
-                                                        ? "bg-red-600 text-red-100"
-                                                        : "bg-gray-600 text-gray-100"
-                                          }`}
-                                        >
-                                          ({log.type})
-                                        </span>
-
-                                        {/* URL/Message */}
-                                        <span className="text-gray-200 flex-1 min-w-0 truncate">
-                                          {log.url || log.message}
-                                        </span>
-
-                                        {/* (✓/❌) Status Badge */}
-                                        {log.status && (
-                                          <span
-                                            className={`inline-flex items-center px-2 py-1 rounded text-xs ${
-                                              log.status === "✓" ||
-                                              log.status === "⏳"
-                                                ? "bg-green-600 text-green-100"
-                                                : "bg-red-600 text-red-100"
-                                            }`}
-                                          >
-                                            ({log.status})
-                                          </span>
-                                        )}
-
-                                        {/* (⏱ timing) Badge */}
-                                        {log.timing && (
-                                          <span className="inline-flex items-center px-2 py-1 rounded bg-gray-600 text-gray-200 text-xs">
-                                            (⏱ {log.timing})
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                              {/* Auto-scroll target */}
-                              <div
-                                ref={(el) => {
-                                  if (el) {
-                                    logsEndRef.current[job.id] = el;
-                                  }
-                                }}
-                                style={{ height: "1px" }}
-                              />
-                            </div>
-                          ) : (
-                            <div className="p-8 text-center text-gray-500">
-                              <div className="w-12 h-12 mx-auto mb-3 bg-gray-800 rounded-lg flex items-center justify-center">
-                                <svg
-                                  className="w-6 h-6"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                  />
-                                </svg>
-                              </div>
-                              <p className="text-sm">No logs available</p>
-                              <p className="text-xs mt-1">
-                                Start a scraping job to see real-time logs
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-          </div>
-        )}
-      </div>
-
-      {/* Delete Confirmation Modal */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
-            <p className="text-gray-600 mb-4">
-              Type the exact URL to confirm deletion:
-            </p>
-            <input
-              type="text"
-              value={deleteConfirm.confirmUrl}
-              onChange={(e) =>
-                setDeleteConfirm({
-                  ...deleteConfirm,
-                  confirmUrl: e.target.value,
-                })
-              }
-              placeholder="Enter URL to confirm"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
-            />
-
-            {/* Deletion Options */}
-            <div className="mb-6">
-              <p className="text-sm font-medium text-gray-700 mb-3">
-                What to delete:
-              </p>
-              <div className="space-y-2">
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={deleteConfirm.deleteFromDb}
-                    onChange={(e) =>
-                      setDeleteConfirm({
-                        ...deleteConfirm,
-                        deleteFromDb: e.target.checked,
-                      })
-                    }
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">
-                    Delete from Database (jobs, runs, logs)
-                  </span>
+        {/* Add New Job Form */}
+        <div className="card p-6">
+          <h2 className="text-lg font-semibold mb-4">Add New Job</h2>
+          <form onSubmit={startJob} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* URL Input */}
+              <div className="lg:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Savee.it URL
                 </label>
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={deleteConfirm.deleteFromR2}
-                    onChange={(e) =>
-                      setDeleteConfirm({
-                        ...deleteConfirm,
-                        deleteFromR2: e.target.checked,
-                      })
-                    }
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">
-                    Delete from R2 Storage (all scraped media)
-                  </span>
+                <input
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://savee.it, https://savee.it/pop, https://savee.it/username"
+                  className="input"
+                  required
+                />
+              </div>
+
+              {/* Source Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type (Auto-detected)
                 </label>
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={deleteConfirm.deleteUsers}
-                    onChange={(e) =>
-                      setDeleteConfirm({
-                        ...deleteConfirm,
-                        deleteUsers: e.target.checked,
-                      })
-                    }
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">
-                    Delete Users (savee_users and user_blocks)
-                  </span>
+                <select
+                  value={sourceType}
+                  onChange={(e) =>
+                    setSourceType(e.target.value as "home" | "pop" | "user")
+                  }
+                  className="select"
+                >
+                  <option value="home">Home Feed</option>
+                  <option value="pop">Popular</option>
+                  <option value="user">User Profile</option>
+                </select>
+              </div>
+
+              {/* Max Items */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Max Items (blank = all)
                 </label>
+                <input
+                  type="number"
+                  value={maxItems}
+                  onChange={(e) =>
+                    setMaxItems(
+                      e.target.value === "" ? "" : parseInt(e.target.value)
+                    )
+                  }
+                  placeholder="All found"
+                  min="1"
+                  className="input"
+                />
               </div>
             </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => deleteJob(deleteConfirm.jobId)}
-                disabled={
-                  !deleteConfirm.deleteFromDb &&
-                  !deleteConfirm.deleteFromR2 &&
-                  !deleteConfirm.deleteUsers
+            <button
+              type="submit"
+              disabled={isSubmitting || !url.trim()}
+              className="btn btn-primary disabled:bg-gray-400"
+            >
+              {isSubmitting ? "Adding Job..." : "Add Job"}
+            </button>
+          </form>
+        </div>
+
+        {/* Jobs List */}
+        <Card>
+          <CardHeader className="flex items-center justify-between gap-4">
+            <CardTitle>Jobs ({jobs.length})</CardTitle>
+            <Input
+              placeholder="Search jobs (url or username)"
+              className="w-full max-w-xs"
+              value={jobQuery}
+              onChange={(e) => setJobQuery(e.currentTarget.value)}
+            />
+          </CardHeader>
+
+          {jobs.length === 0 ? (
+            <CardContent className="text-center text-muted-foreground">
+              No jobs yet. Add your first job above.
+            </CardContent>
+          ) : (
+            <CardContent className="space-y-6">
+              {jobs
+                .filter((j) => {
+                  if (!jobQuery.trim()) return true;
+                  const q = jobQuery.trim().toLowerCase();
+                  return (
+                    (j.url || "").toLowerCase().includes(q) ||
+                    (j.username || "").toLowerCase().includes(q)
+                  );
+                })
+                .map((job) => (
+                  <Card key={job.id}>
+                    {/* Job Header */}
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Badge className="font-mono">
+                              {job.status.toUpperCase()}
+                            </Badge>
+                            {/* Pause Badge - Show when run is paused */}
+                            {job.runStatus === "paused" && (
+                              <Badge variant="secondary" className="gap-1">
+                                <span>⏸</span>PAUSED
+                              </Badge>
+                            )}
+                            <span className="text-sm text-gray-600">
+                              {getSourceTypeDisplay(
+                                job.sourceType,
+                                job.username
+                              )}
+                            </span>
+                          </div>
+                          <div className="text-sm font-mono text-gray-800">
+                            {job.url}
+                          </div>
+                          <div
+                            className="text-xs text-gray-500 mt-1"
+                            title={`Last completed: ${formatDateTime(job.lastRun)}\nNext scheduled: ${formatDateTime(job.nextRun)}`}
+                          >
+                            Next scheduled: {formatDateTime(job.nextRun)}{" "}
+                            <Badge variant="outline" className="ml-1">
+                              due in{" "}
+                              {formatDueIn(computeDueInSeconds(job.nextRun))}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {/* Job Controls */}
+                        <div className="flex items-center gap-2">
+                          {/* Pause Button - Available for active AND running jobs, but not if already paused */}
+                          {(job.status === "active" ||
+                            job.status === "running") &&
+                            job.runStatus !== "paused" && (
+                              <button
+                                onClick={() => pauseJob(job.id)}
+                                className="btn"
+                                title="Pause Job"
+                              >
+                                Pause
+                              </button>
+                            )}
+
+                          {/* Resume Button - Only for paused jobs */}
+                          {(job.status === "paused" ||
+                            job.runStatus === "paused") && (
+                            <button
+                              onClick={() => resumeJob(job.id)}
+                              className="btn"
+                              title="Resume Job"
+                            >
+                              Resume
+                            </button>
+                          )}
+
+                          {/* Run Now Button - Only for active jobs */}
+                          {job.status === "active" && (
+                            <button
+                              onClick={() => runNowJob(job.id)}
+                              className="btn"
+                              title="Run Now"
+                            >
+                              Run Now
+                            </button>
+                          )}
+
+                          {/* Edit Button - Always visible; works via prompt; prefer paused */}
+                          <button
+                            onClick={() => editJob(job.id, job.url)}
+                            className="btn"
+                            title="Edit URL and/or Max Items, then restart"
+                          >
+                            Edit
+                          </button>
+
+                          {/* Info Button */}
+                          <button
+                            className="btn"
+                            title={`Last run: ${formatDateTime(job.lastRun)}\nNext: ${formatDateTime(job.nextRun)}`}
+                          >
+                            Info
+                          </button>
+                          {/* Inline schedule controls */}
+                          <div className="flex items-center gap-3 ml-2">
+                            <div className="flex flex-col">
+                              <input
+                                type="number"
+                                min={10}
+                                placeholder="Interval (s)"
+                                defaultValue={
+                                  (job.intervalSeconds ??
+                                    job.effectiveIntervalSeconds ??
+                                    undefined) as any
+                                }
+                                onBlur={(e) =>
+                                  updateScheduleInline(
+                                    job.id,
+                                    e.currentTarget.value,
+                                    undefined
+                                  )
+                                }
+                                className="input w-28"
+                                title="Override interval in seconds (blank=global)"
+                              />
+                              <span className="text-[10px] text-gray-500">
+                                seconds (base)
+                              </span>
+                            </div>
+                            {/* Effective interval chip */}
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] whitespace-nowrap"
+                                title="Base interval used to schedule the next run (override or global)"
+                              >
+                                Base interval:{" "}
+                                {formatSeconds(
+                                  job.effectiveIntervalSeconds ??
+                                    job.intervalSeconds ??
+                                    0
+                                )}
+                              </div>
+                              {renderBackoffChip(job)}
+                            </div>
+                            <label
+                              className="flex items-center gap-1 text-xs text-gray-700"
+                              title="Adaptive backoff reduces frequency after errors/zero-uploads"
+                            >
+                              <input
+                                type="checkbox"
+                                defaultChecked={!job.disableBackoff}
+                                onChange={(e) =>
+                                  updateScheduleInline(
+                                    job.id,
+                                    undefined,
+                                    e.currentTarget.checked
+                                  )
+                                }
+                              />
+                              Adaptive
+                            </label>
+                          </div>
+
+                          {/* Delete */}
+                          <button
+                            onClick={() =>
+                              setDeleteConfirm({
+                                jobId: job.id,
+                                confirmUrl: "",
+                                deleteFromDb: true,
+                                deleteFromR2: true,
+                                deleteUsers: true,
+                              })
+                            }
+                            className="btn btn-danger"
+                            title="Delete Job (requires URL confirmation)"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    {/* Counters */}
+                    <CardContent className="flex items-center gap-6 text-sm">
+                      <span className="text-green-600">
+                        <strong>{job.counters.uploaded}</strong> uploaded
+                      </span>
+                      <span className="text-blue-600">
+                        <strong>{job.counters.found}</strong> processed
+                      </span>
+                      {(job.counters.skipped ?? 0) > 0 && (
+                        <span className="text-gray-600">
+                          <strong>{job.counters.skipped}</strong> skipped
+                        </span>
+                      )}
+                      {job.counters.errors > 0 && (
+                        <span className="text-red-600">
+                          <strong>{job.counters.errors}</strong> errors
+                        </span>
+                      )}
+                      <span className="text-gray-600">
+                        Max: <strong>{job.maxItems}</strong>
+                      </span>
+                    </CardContent>
+
+                    {/* Error Message */}
+                    {job.status === "error" && job.error && (
+                      <CardContent className="bg-red-50 border border-red-200 rounded-md p-3">
+                        <div className="text-red-800 text-sm font-medium">
+                          Error:
+                        </div>
+                        <div className="text-red-700 text-sm">{job.error}</div>
+                      </CardContent>
+                    )}
+
+                    {/* Logs Toggle */}
+                    <CardFooter>
+                      <button
+                        onClick={() => toggleJobLogs(job.id)}
+                        className="flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm"
+                      >
+                        <span
+                          className={`transform transition-transform ${expandedJobs.has(job.id) ? "rotate-90" : ""}`}
+                        >
+                          ▶
+                        </span>
+                        Logs
+                      </button>
+                    </CardFooter>
+
+                    {/* Logs Content */}
+                    {expandedJobs.has(job.id) && (
+                      <CardContent className="mt-2">
+                        <div className="bg-gray-900 rounded-lg border border-gray-700">
+                          <div className="px-4 py-3 bg-gray-800 rounded-t-lg border-b border-gray-700">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-medium text-gray-100">
+                                Real-time Logs
+                              </h4>
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                                <span className="text-xs text-gray-400">
+                                  Live
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    logsEndRef.current[job.id]?.scrollIntoView({
+                                      behavior: "smooth",
+                                      block: "end",
+                                    });
+                                    setIsAutoScroll((prev) => ({
+                                      ...prev,
+                                      [job.id]: true,
+                                    }));
+                                  }}
+                                >
+                                  Jump to latest
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <ScrollArea className="max-h-80">
+                            <div className="p-4 space-y-3">
+                              {logs[job.id]?.length ? (
+                                logs[job.id].map((log, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="font-mono text-sm text-gray-200 bg-gray-900/70 border border-gray-700 rounded px-3 py-2"
+                                  >
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="inline-flex items-center px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs">
+                                        [{formatDateOnly(log.timestamp)} |{" "}
+                                        {formatTimeOnly(log.timestamp)}]
+                                      </span>
+                                      <Badge variant="secondary">
+                                        ({log.type})
+                                      </Badge>
+                                      <span className="text-gray-200 flex-1 min-w-0 truncate">
+                                        {log.url || log.message}
+                                      </span>
+                                      {log.status && (
+                                        <Badge className="font-mono">
+                                          ({log.status})
+                                        </Badge>
+                                      )}
+                                      {log.timing && (
+                                        <Badge
+                                          variant="outline"
+                                          className="font-mono"
+                                        >
+                                          (⏱ {log.timing})
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="p-8 text-center text-gray-500">
+                                  No logs available
+                                </div>
+                              )}
+                              <div
+                                ref={(el) => {
+                                  if (el) logsEndRef.current[job.id] = el;
+                                }}
+                              />
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                ))}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
+              <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
+              <p className="text-gray-600 mb-4">
+                Type the exact URL to confirm deletion:
+              </p>
+              <input
+                type="text"
+                value={deleteConfirm.confirmUrl}
+                onChange={(e) =>
+                  setDeleteConfirm({
+                    ...deleteConfirm,
+                    confirmUrl: e.target.value,
+                  })
                 }
-                className="bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-md"
-              >
-                Delete Selected
-              </button>
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md"
-              >
-                Cancel
-              </button>
+                placeholder="Enter URL to confirm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md mb-4"
+              />
+
+              {/* Deletion Options */}
+              <div className="mb-6">
+                <p className="text-sm font-medium text-gray-700 mb-3">
+                  What to delete:
+                </p>
+                <div className="space-y-2">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={deleteConfirm.deleteFromDb}
+                      onChange={(e) =>
+                        setDeleteConfirm({
+                          ...deleteConfirm,
+                          deleteFromDb: e.target.checked,
+                        })
+                      }
+                      className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">
+                      Delete from Database (jobs, runs, logs)
+                    </span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={deleteConfirm.deleteFromR2}
+                      onChange={(e) =>
+                        setDeleteConfirm({
+                          ...deleteConfirm,
+                          deleteFromR2: e.target.checked,
+                        })
+                      }
+                      className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">
+                      Delete from R2 Storage (all scraped media)
+                    </span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={deleteConfirm.deleteUsers}
+                      onChange={(e) =>
+                        setDeleteConfirm({
+                          ...deleteConfirm,
+                          deleteUsers: e.target.checked,
+                        })
+                      }
+                      className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">
+                      Delete Users (savee_users and user_blocks)
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => deleteJob(deleteConfirm.jobId)}
+                  disabled={
+                    !deleteConfirm.deleteFromDb &&
+                    !deleteConfirm.deleteFromR2 &&
+                    !deleteConfirm.deleteUsers
+                  }
+                  className="bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-md"
+                >
+                  Delete Selected
+                </button>
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Schedule Edit Modal */}
-      {/* (removed legacy schedule modal) */}
-    </div>
+        {/* Schedule Edit Modal */}
+        {/* (removed legacy schedule modal) */}
+      </div>
+    </ThemeProvider>
   );
 }

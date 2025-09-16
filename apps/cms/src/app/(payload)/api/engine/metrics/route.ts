@@ -3,6 +3,10 @@ import { getPayload } from "payload";
 import config from "@payload-config";
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
+  // Dev-only bypass to avoid 401s during local development
+  if (process.env.NODE_ENV !== "production") {
+    return true;
+  }
   // Check for external monitor token first (for GitHub Actions)
   const token = process.env.ENGINE_MONITOR_TOKEN;
   if (token) {
@@ -17,7 +21,7 @@ async function isAuthorized(req: NextRequest): Promise<boolean> {
       if (t && t === token) return true;
     } catch {}
   }
-  
+
   // For admin panel access, check Payload session
   try {
     const payload = await getPayload({ config });

@@ -48,6 +48,49 @@ async function deleteObjectsFromR2(r2Keys: string[]): Promise<boolean> {
   }
 }
 
+// Helper to delete all objects under a prefix (best-effort)
+async function deletePrefixFromR2(prefix: string): Promise<number> {
+  try {
+    const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } =
+      await import("@aws-sdk/client-s3");
+    const r2Client = new S3Client({
+      region: "auto",
+      endpoint: process.env.R2_ENDPOINT_URL,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+      },
+    });
+    const bucket = process.env.R2_BUCKET_NAME!;
+    let deleted = 0;
+    let token: string | undefined = undefined;
+    do {
+      const resp = await r2Client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+          MaxKeys: 1000,
+        })
+      );
+      const objs = resp.Contents || [];
+      if (objs.length === 0) break;
+      await r2Client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: objs.map((o) => ({ Key: o.Key! })), Quiet: true },
+        })
+      );
+      deleted += objs.length;
+      token = resp.IsTruncated ? resp.NextContinuationToken : undefined;
+    } while (token);
+    return deleted;
+  } catch (e) {
+    console.warn("R2 prefix delete warning:", e);
+    return 0;
+  }
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
@@ -91,6 +134,13 @@ export async function DELETE(
     // Delete from R2 if requested
     if (deleteFromR2) {
       try {
+        // Fetch source to enable prefix cleanup (user sources)
+        const srcInfo = await db.query(
+          `SELECT source_type, username, url FROM sources WHERE id = $1 LIMIT 1`,
+          [sourceId]
+        );
+        const src = srcInfo.rows?.[0] || {};
+
         // Get all R2 keys for this source to delete from R2
         const blocksToDelete = await db.query(
           `SELECT r2_key FROM blocks WHERE source_id = $1`,
@@ -136,6 +186,20 @@ export async function DELETE(
             console.log(`R2 deletion completed with some errors`);
           }
         }
+
+        // Best-effort prefix cleanup for user sources (and legacy layout)
+        if (
+          (src.source_type === "user" || src.source_type === "User") &&
+          src.username
+        ) {
+          const n1 = await deletePrefixFromR2(`users/${src.username}/`);
+          const n2 = await deletePrefixFromR2(`${src.username}/`);
+          if (n1 + n2 > 0) {
+            console.log(
+              `Deleted leftover prefix objects for user ${src.username}: ${n1 + n2}`
+            );
+          }
+        }
       } catch (r2Error) {
         console.error("R2 deletion error:", r2Error);
         // Continue with other deletions even if R2 fails
@@ -169,6 +233,28 @@ export async function DELETE(
            WHERE NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE ub.user_id = su.id)`
         );
 
+        // Force delete the specific user by username if this is a user source
+        try {
+          const srcInfoUser = await db.query(
+            `SELECT username FROM sources WHERE id = $1 AND LOWER(source_type) = 'user' LIMIT 1`,
+            [sourceId]
+          );
+          const username: string | null =
+            srcInfoUser.rows?.[0]?.username || null;
+          if (username) {
+            await db.query(
+              `DELETE FROM user_blocks WHERE user_id IN (
+                 SELECT id FROM savee_users WHERE LOWER(username) = LOWER($1)
+               )`,
+              [username]
+            );
+            await db.query(
+              `DELETE FROM savee_users WHERE LOWER(username) = LOWER($1)`,
+              [username]
+            );
+          }
+        } catch {}
+
         // Delete their avatar objects from R2
         if (deleteFromR2 && orphanAvatars.rows.length > 0) {
           const avatarKeysRaw: string[] = orphanAvatars.rows
@@ -183,7 +269,9 @@ export async function DELETE(
               const dot = k.lastIndexOf(".");
               if (slash > 0 && dot > slash) {
                 const basePath = k.substring(0, slash + 1);
-                const core = k.substring(slash + 1, dot).replace(/^original_/, "");
+                const core = k
+                  .substring(slash + 1, dot)
+                  .replace(/^original_/, "");
                 avatarKeys.push(`${basePath}small_${core}.jpg`);
                 avatarKeys.push(`${basePath}medium_${core}.jpg`);
                 avatarKeys.push(`${basePath}large_${core}.jpg`);
@@ -265,7 +353,18 @@ export async function DELETE(
 
     // Ensure the Payload document is removed from CMS as well
     try {
-      await payload.delete({ collection: "sources", id: String(jobId) });
+      // Check existence first to avoid noisy 404s in logs
+      try {
+        const doc = await payload.findByID({
+          collection: "sources",
+          id: String(jobId),
+        });
+        if (doc) {
+          await payload.delete({ collection: "sources", id: String(jobId) });
+        }
+      } catch (e) {
+        // findByID may throw if missing; ignore
+      }
     } catch (e) {
       // It's fine if it was already removed via SQL; ignore
       console.warn("Payload source delete (best-effort) warning:", e as any);

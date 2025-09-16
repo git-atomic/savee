@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPayload } from "payload";
 import config from "@payload-config";
+import { publish } from "@/lib/sse";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -34,7 +35,9 @@ async function ensureLogsTable(db: any) {
       timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
-  await db.query(`CREATE INDEX IF NOT EXISTS job_logs_run_id_idx ON job_logs(run_id)`);
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS job_logs_run_id_idx ON job_logs(run_id)`
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -53,12 +56,15 @@ export async function GET(request: NextRequest) {
 
     await ensureLogsTable(db);
 
-    const runCheck = await db.query(
-      `SELECT id FROM runs WHERE id = $1`,
-      [parseInt(runId)]
-    );
+    const runCheck = await db.query(`SELECT id FROM runs WHERE id = $1`, [
+      parseInt(runId),
+    ]);
     if (runCheck.rows.length === 0) {
-      return NextResponse.json({ success: true, logs: [], message: `Run ${runId} not found or no logs yet` });
+      return NextResponse.json({
+        success: true,
+        logs: [],
+        message: `Run ${runId} not found or no logs yet`,
+      });
     }
 
     const result = await db.query(
@@ -76,7 +82,8 @@ export async function GET(request: NextRequest) {
       status: row.status,
       message: row.message,
       timing: row.timing,
-      timestamp: row.timestamp?.toISOString?.() || new Date(row.timestamp).toISOString(),
+      timestamp:
+        row.timestamp?.toISOString?.() || new Date(row.timestamp).toISOString(),
     }));
 
     return NextResponse.json({ success: true, logs });
@@ -95,7 +102,11 @@ export async function POST(request: NextRequest) {
     const trimmed = raw?.trim() ?? "";
     if (!trimmed) return new Response(null, { status: 204 });
     let body: any;
-    try { body = JSON.parse(trimmed); } catch { return new Response(null, { status: 204 }); }
+    try {
+      body = JSON.parse(trimmed);
+    } catch {
+      return new Response(null, { status: 204 });
+    }
 
     const runId = body?.jobId || body?.runId;
     const { log } = body ?? {};
@@ -117,10 +128,20 @@ export async function POST(request: NextRequest) {
       ]
     );
 
+    // Broadcast to SSE subscribers for instant UI updates
+    try {
+      publish(String(runId), "log", {
+        timestamp: log.timestamp || new Date().toISOString(),
+        type: log.type,
+        url: log.url,
+        status: log.status,
+        timing: log.timing,
+        message: log.message,
+      });
+    } catch {}
+
     return NextResponse.json({ success: true });
   } catch {
     return new Response(null, { status: 204 });
   }
 }
-
-

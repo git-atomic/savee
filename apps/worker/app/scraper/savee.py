@@ -27,6 +27,9 @@ def _normalize_cookie_entry(entry: dict) -> Optional[dict]:
         path = entry.get('path', '/') or '/'
         if not (name and value and domain):
             return None
+        # Playwright (and most browsers for direct set) expect domain without a leading dot
+        if isinstance(domain, str) and domain.startswith('.'):
+            domain = domain[1:]
         # expirationDate (seconds, float) -> expires (int)
         expires = entry.get('expires')
         if not expires and 'expirationDate' in entry:
@@ -95,6 +98,13 @@ def load_cookies_from_env() -> Optional[list]:
             return _load_cookies_from_json_text(Path(cp).read_text(encoding='utf-8'))
         except Exception:
             return None
+    # Fallback: use repo default file if present (handles wrong COOKIES_PATH like container paths)
+    try:
+        default_cookie_file = Path(__file__).resolve().parents[2] / 'savee_cookies.json'
+        if default_cookie_file.exists():
+            return _load_cookies_from_json_text(default_cookie_file.read_text(encoding='utf-8'))
+    except Exception:
+        pass
     return None
 
 
@@ -586,7 +596,19 @@ class SaveeScraper:
                 base_url0 = f"{sp0.scheme}://{sp0.netloc}"
                 await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
 
-            listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=3, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
+            try:
+                scroll_steps = int(os.getenv('SAVEESCRAPER_SCROLL_STEPS', '10'))
+                scroll_wait_ms = int(os.getenv('SAVEESCRAPER_SCROLL_WAIT_MS', '800'))
+                idle_rounds = int(os.getenv('SAVEESCRAPER_IDLE_ROUNDS', '5'))
+            except Exception:
+                scroll_steps, scroll_wait_ms, idle_rounds = 10, 800, 5
+            listing_html = await self._fetch_listing_html(
+                crawler, url,
+                scroll_steps=scroll_steps,
+                scroll_wait_ms=scroll_wait_ms,
+                until_idle=True,
+                idle_rounds=idle_rounds
+            )
             if not listing_html:
                 return items
 
@@ -667,7 +689,19 @@ class SaveeScraper:
                     await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
 
                 logger.info(f"Starting real-time scraping: {url}")
-                listing_html = await self._fetch_listing_html(crawler, url, scroll_steps=3, scroll_wait_ms=800, until_idle=True, idle_rounds=5)
+                try:
+                    scroll_steps = int(os.getenv('SAVEESCRAPER_SCROLL_STEPS', '6'))
+                    scroll_wait_ms = int(os.getenv('SAVEESCRAPER_SCROLL_WAIT_MS', '800'))
+                    idle_rounds = int(os.getenv('SAVEESCRAPER_IDLE_ROUNDS', '5'))
+                except Exception:
+                    scroll_steps, scroll_wait_ms, idle_rounds = 6, 800, 5
+                listing_html = await self._fetch_listing_html(
+                    crawler, url,
+                    scroll_steps=scroll_steps,
+                    scroll_wait_ms=scroll_wait_ms,
+                    until_idle=True,
+                    idle_rounds=idle_rounds
+                )
                 if not listing_html:
                     logger.warning(f"No HTML content retrieved from {url}")
                     return

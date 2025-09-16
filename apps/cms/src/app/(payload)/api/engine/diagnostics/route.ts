@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       CORS_ORIGINS: Boolean(env.CORS_ORIGINS),
       MONITOR_MIN_INTERVAL_SECONDS: reqInt(
         "MONITOR_MIN_INTERVAL_SECONDS",
-        3600
+        10800
       ),
       MONITOR_MAX_INTERVAL_SECONDS: reqInt(
         "MONITOR_MAX_INTERVAL_SECONDS",

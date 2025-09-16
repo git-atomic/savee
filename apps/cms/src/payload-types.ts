@@ -164,6 +164,14 @@ export interface Source {
    */
   username?: string | null;
   status: 'active' | 'paused' | 'completed' | 'error';
+  /**
+   * If set, overrides global MONITOR_MIN_INTERVAL_SECONDS for this job
+   */
+  intervalSeconds?: number | null;
+  /**
+   * If enabled, runs strictly on the interval without backoff
+   */
+  disableBackoff?: boolean | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -209,9 +217,17 @@ export interface Run {
 export interface Block {
   id: number;
   /**
+   * Persisted origin for filters (home | pop | username)
+   */
+  origin_text?: string | null;
+  /**
    * Unique identifier from Savee.it
    */
   external_id: string;
+  /**
+   * Comma-separated usernames who saved this block
+   */
+  saved_by_usernames?: string | null;
   source: number | Source;
   run: number | Run;
   /**
@@ -339,6 +355,10 @@ export interface SaveeUser {
    * URL to profile avatar image
    */
   profile_image_url?: string | null;
+  /**
+   * R2 key for stored avatar (when available)
+   */
+  avatar_r2_key?: string | null;
   /**
    * URL to profile cover/banner image
    */
@@ -503,6 +523,8 @@ export interface SourcesSelect<T extends boolean = true> {
   sourceType?: T;
   username?: T;
   status?: T;
+  intervalSeconds?: T;
+  disableBackoff?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -527,7 +549,9 @@ export interface RunsSelect<T extends boolean = true> {
  * via the `definition` "blocks_select".
  */
 export interface BlocksSelect<T extends boolean = true> {
+  origin_text?: T;
   external_id?: T;
+  saved_by_usernames?: T;
   source?: T;
   run?: T;
   savee_user?: T;
@@ -564,6 +588,7 @@ export interface SaveeUsersSelect<T extends boolean = true> {
   display_name?: T;
   bio?: T;
   profile_image_url?: T;
+  avatar_r2_key?: T;
   cover_image_url?: T;
   profile_url?: T;
   follower_count?: T;
