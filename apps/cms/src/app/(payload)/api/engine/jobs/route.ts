@@ -40,7 +40,14 @@ interface JobData {
   sourceType: "home" | "pop" | "user";
   username?: string;
   maxItems: number;
-  status: "active" | "running" | "paused" | "queued" | "stopped" | "error" | "completed";
+  status:
+    | "active"
+    | "running"
+    | "paused"
+    | "queued"
+    | "stopped"
+    | "error"
+    | "completed";
   runStatus?: string;
   counters: {
     found: number;

@@ -94,8 +94,20 @@ type LogEntry = {
 
 type EngineLimits = {
   success: boolean;
-  r2: { totalObjects: number; totalSizeBytes: number; usagePercent: number; softLimitGb: number; nearLimit: boolean };
-  db: { blocks: number; sources: number; runs: number; softLimitBlocks: number; nearLimit: boolean };
+  r2: {
+    totalObjects: number;
+    totalSizeBytes: number;
+    usagePercent: number;
+    softLimitGb: number;
+    nearLimit: boolean;
+  };
+  db: {
+    blocks: number;
+    sources: number;
+    runs: number;
+    softLimitBlocks: number;
+    nearLimit: boolean;
+  };
 };
 
 export default function EngineUI() {
@@ -104,7 +116,14 @@ export default function EngineUI() {
   const [query, setQuery] = React.useState("");
   const [limits, setLimits] = React.useState<EngineLimits | null>(null);
   const [forceStart, setForceStart] = React.useState(false);
-  type StatusKey = "active" | "running" | "queued" | "paused" | "stopped" | "error" | "completed";
+  type StatusKey =
+    | "active"
+    | "running"
+    | "queued"
+    | "paused"
+    | "stopped"
+    | "error"
+    | "completed";
   const STATUS_OPTIONS: { key: StatusKey; label: string; dot: string }[] = [
     { key: "running", label: "Running", dot: "bg-emerald-500" },
     { key: "queued", label: "Queued", dot: "bg-amber-500" },
@@ -335,12 +354,17 @@ export default function EngineUI() {
             <div className="rounded-[12px] border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <b>Near capacity</b> — R2 {Math.round(limits.r2.usagePercent)}% of {limits.r2.softLimitGb} GB
-                  {" · "}DB blocks {limits.db.blocks}/{limits.db.softLimitBlocks}
+                  <b>Near capacity</b> — R2 {Math.round(limits.r2.usagePercent)}
+                  % of {limits.r2.softLimitGb} GB
+                  {" · "}DB blocks {limits.db.blocks}/
+                  {limits.db.softLimitBlocks}
                 </div>
                 <div className="flex items-center gap-3">
                   <label className="inline-flex items-center gap-2 text-xs">
-                    <Switch checked={forceStart} onCheckedChange={(v) => setForceStart(Boolean(v))} />
+                    <Switch
+                      checked={forceStart}
+                      onCheckedChange={(v) => setForceStart(Boolean(v))}
+                    />
                     Force start
                   </label>
                 </div>
@@ -491,7 +515,12 @@ export default function EngineUI() {
                     return matchesQuery && matchesStatus;
                   })
                   .map((j) => (
-                    <EngineJobCard key={j.id} job={j} refresh={fetchJobs} limits={limits} />
+                    <EngineJobCard
+                      key={j.id}
+                      job={j}
+                      refresh={fetchJobs}
+                      limits={limits}
+                    />
                   ))}
                 {jobs.length === 0 && (
                   <div className="text-center text-muted-foreground text-sm">
@@ -723,8 +752,13 @@ function EngineJobCard({
   const runNow = async () => {
     const url = "/api/engine/control";
     const body: any = { action: "run_now", jobId: job.id };
-    if (forceRunToggle || limits?.r2?.nearLimit || limits?.db?.nearLimit) body.force = true;
-    await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (forceRunToggle || limits?.r2?.nearLimit || limits?.db?.nearLimit)
+      body.force = true;
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     refresh();
   };
   const forceRun = async () => {
@@ -869,12 +903,12 @@ function EngineJobCard({
         <IntervalEditor job={job} onUpdated={refresh} />
       </CardContent>
       <CardFooter className="flex flex-wrap items-center gap-2">
-        {job.runStatus !== "paused" &&
-          (job.status === "active" || job.status === "running") && (
-            <Button size="sm" variant="outline" onClick={pause}>
-              Pause
-            </Button>
-          )}
+        {/* Pause only while running */}
+        {job.status === "running" && (
+          <Button size="sm" variant="outline" onClick={pause}>
+            Pause
+          </Button>
+        )}
         {job.runStatus === "stale" && (
           <Button
             size="sm"
@@ -895,7 +929,8 @@ function EngineJobCard({
             Resume
           </Button>
         )}
-        {job.status === "active" && (
+        {/* Allow starting when not currently running (includes queued, paused, stopped, error, completed, active) */}
+        {job.status !== "running" && (
           <>
             <Button size="sm" onClick={runNow}>
               Run Now
@@ -905,18 +940,22 @@ function EngineJobCard({
             </Button>
           </>
         )}
-        {(job.status === "running" || job.runStatus === "running") && (
+        {/* Allow cancel for running or queued */}
+        {(job.status === "running" || job.runStatus === "running" || job.status === "queued") && (
           <Button size="sm" variant="outline" onClick={cancelRun}>
             Cancel Run
           </Button>
         )}
-        {(job.status === "running" || job.status === "active") && (
+        {(job.status === "running" || job.status === "active" || job.status === "queued") && (
           <Button size="sm" variant="destructive" onClick={stop}>
             Stop
           </Button>
         )}
         <label className="ml-auto inline-flex items-center gap-2 text-xs">
-          <Switch checked={forceRunToggle} onCheckedChange={(v) => setForceRunToggle(Boolean(v))} />
+          <Switch
+            checked={forceRunToggle}
+            onCheckedChange={(v) => setForceRunToggle(Boolean(v))}
+          />
           Force
         </label>
         <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>
