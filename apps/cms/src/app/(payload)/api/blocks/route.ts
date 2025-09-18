@@ -100,6 +100,12 @@ export async function GET(req: NextRequest) {
       ? `WHERE ${blockWhere.join(" AND ")}`
       : "";
 
+    // Build WHERE safely to avoid leading AND
+    const normalizedBlock = blockWhereSQL.replace(/^\s*WHERE\s+/i, "").trim();
+    const normalizedOrigin = originFilter.replace(/^\s*AND\s+/i, "").trim();
+    const whereParts = [normalizedBlock, normalizedOrigin].filter(Boolean);
+    const whereSQL = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+
     const query = `
       SELECT 
         b.*, 
@@ -138,16 +144,7 @@ export async function GET(req: NextRequest) {
           )
         ) AS origin_map
       FROM blocks b
-      ${
-        [blockWhereSQL, originFilter].filter(Boolean).length
-          ? `WHERE ${[
-              blockWhereSQL.replace(/^WHERE\s+/i, ""),
-              originFilter.replace(/^AND\s+/i, ""),
-            ]
-              .filter(Boolean)
-              .join(" AND ")}`
-          : ""
-      }
+      ${whereSQL}
       ORDER BY b.saved_at DESC NULLS LAST, b.created_at DESC NULLS LAST
       LIMIT $${params.length + 1}
     `;
