@@ -14,7 +14,7 @@ interface SourceData {
 
 export async function POST(request: NextRequest) {
   try {
-    const { url, maxItems } = await request.json();
+    const { url, maxItems, force: forceBody } = await request.json();
 
     if (!url) {
       return NextResponse.json(
@@ -33,6 +33,33 @@ export async function POST(request: NextRequest) {
       String(process.env.MONITOR_MODE || "").toLowerCase() === "external" ||
       String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true" ||
       String(process.env.VERCEL || "") === "1"; // default external on Vercel
+
+    // Capacity guard: check R2/DB limits unless forcing
+    const urlObj = new URL(request.url);
+    const forceParam = (urlObj.searchParams.get("force") || "").toLowerCase();
+    const force = Boolean(forceBody) || forceParam === "1" || forceParam === "true";
+    try {
+      const limitsRes = await fetch(
+        `${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/engine/limits`,
+        { cache: "no-store" }
+      );
+      if (limitsRes.ok) {
+        const limits = await limitsRes.json();
+        const nearR2 = !!limits?.r2?.nearLimit;
+        const nearDb = !!limits?.db?.nearLimit;
+        if ((nearR2 || nearDb) && !force) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Capacity near limits",
+              details: { r2: limits?.r2, db: limits?.db },
+              hint: "Pass force:true to override",
+            },
+            { status: 429 }
+          );
+        }
+      }
+    } catch {}
 
     // Parse the URL to determine type and extract username
     const parsedUrl = parseSaveeUrl(url);

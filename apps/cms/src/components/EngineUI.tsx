@@ -92,10 +92,18 @@ type LogEntry = {
   message?: string;
 };
 
+type EngineLimits = {
+  success: boolean;
+  r2: { totalObjects: number; totalSizeBytes: number; usagePercent: number; softLimitGb: number; nearLimit: boolean };
+  db: { blocks: number; sources: number; runs: number; softLimitBlocks: number; nearLimit: boolean };
+};
+
 export default function EngineUI() {
   const [metrics, setMetrics] = React.useState<EngineMetrics | null>(null);
   const [jobs, setJobs] = React.useState<JobData[]>([]);
   const [query, setQuery] = React.useState("");
+  const [limits, setLimits] = React.useState<EngineLimits | null>(null);
+  const [forceStart, setForceStart] = React.useState(false);
   type StatusKey = "active" | "running" | "paused" | "error" | "completed";
   const STATUS_OPTIONS: { key: StatusKey; label: string; dot: string }[] = [
     { key: "running", label: "Running", dot: "bg-emerald-500" },
@@ -200,6 +208,13 @@ export default function EngineUI() {
     } catch {}
   }, []);
 
+  const fetchLimits = React.useCallback(async () => {
+    try {
+      const r = await fetch("/api/engine/limits", { cache: "no-store" });
+      if (r.ok) setLimits(await r.json());
+    } catch {}
+  }, []);
+
   const fetchJobs = React.useCallback(async () => {
     try {
       const r = await fetch("/api/engine/jobs");
@@ -212,13 +227,15 @@ export default function EngineUI() {
 
   React.useEffect(() => {
     fetchMetrics();
+    fetchLimits();
     fetchJobs();
     const t = setInterval(() => {
       fetchMetrics();
+      fetchLimits();
       fetchJobs();
     }, 1500);
     return () => clearInterval(t);
-  }, [fetchMetrics, fetchJobs]);
+  }, [fetchMetrics, fetchLimits, fetchJobs]);
 
   // Compute active sources locally for the "Active" stat (metrics API does not return it)
   const activeCount = React.useMemo(
@@ -309,6 +326,24 @@ export default function EngineUI() {
         </div>
 
         <div className="mx-auto max-w-7xl p-6 space-y-6">
+          {/* Capacity banner */}
+          {limits && (limits.r2?.nearLimit || limits.db?.nearLimit) && (
+            <div className="rounded-[12px] border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <b>Near capacity</b> — R2 {Math.round(limits.r2.usagePercent)}% of {limits.r2.softLimitGb} GB
+                  {" · "}DB blocks {limits.db.blocks}/{limits.db.softLimitBlocks}
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex items-center gap-2 text-xs">
+                    <Switch checked={forceStart} onCheckedChange={(v) => setForceStart(Boolean(v))} />
+                    Force start
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Stats row */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
             {stat(
@@ -452,7 +487,7 @@ export default function EngineUI() {
                     return matchesQuery && matchesStatus;
                   })
                   .map((j) => (
-                    <EngineJobCard key={j.id} job={j} refresh={fetchJobs} />
+                    <EngineJobCard key={j.id} job={j} refresh={fetchJobs} limits={limits} />
                   ))}
                 {jobs.length === 0 && (
                   <div className="text-center text-muted-foreground text-sm">
@@ -475,9 +510,11 @@ export default function EngineUI() {
 function EngineJobCard({
   job,
   refresh,
+  limits,
 }: {
   job: JobData;
   refresh: () => void;
+  limits?: EngineLimits | null;
 }) {
   const [open, setOpen] = React.useState(false);
   const [editOpen, setEditOpen] = React.useState(false);
@@ -496,6 +533,7 @@ function EngineJobCard({
   const esRef = React.useRef<EventSource | null>(null);
   const pollRef = React.useRef<any>(null);
   const reconnectRef = React.useRef<any>(null);
+  const [forceRunToggle, setForceRunToggle] = React.useState(false);
 
   // Normalize URL equality for delete confirmation (ignore protocol and trailing slash)
   const canDelete = React.useMemo(() => {
@@ -679,11 +717,10 @@ function EngineJobCard({
     refresh();
   };
   const runNow = async () => {
-    await fetch("/api/engine/control", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "run_now", jobId: job.id }),
-    });
+    const url = "/api/engine/control";
+    const body: any = { action: "run_now", jobId: job.id };
+    if (forceRunToggle || limits?.r2?.nearLimit || limits?.db?.nearLimit) body.force = true;
+    await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     refresh();
   };
   const forceRun = async () => {
@@ -691,6 +728,14 @@ function EngineJobCard({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "run_now", jobId: job.id, force: true }),
+    });
+    refresh();
+  };
+  const stop = async () => {
+    await fetch("/api/engine/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "stop", jobId: job.id }),
     });
     refresh();
   };
@@ -861,6 +906,15 @@ function EngineJobCard({
             Cancel Run
           </Button>
         )}
+        {(job.status === "running" || job.status === "active") && (
+          <Button size="sm" variant="destructive" onClick={stop}>
+            Stop
+          </Button>
+        )}
+        <label className="ml-auto inline-flex items-center gap-2 text-xs">
+          <Switch checked={forceRunToggle} onCheckedChange={(v) => setForceRunToggle(Boolean(v))} />
+          Force
+        </label>
         <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>
           {open ? "Hide Logs" : "View Logs"}
         </Button>
