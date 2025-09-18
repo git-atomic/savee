@@ -686,6 +686,23 @@ function EngineJobCard({
     });
     refresh();
   };
+  const forceRun = async () => {
+    await fetch("/api/engine/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "run_now", jobId: job.id, force: true }),
+    });
+    refresh();
+  };
+  const cancelRun = async () => {
+    // Prefer force cancel through run_now, but provide direct cancel for UX
+    await fetch("/api/engine/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "pause", jobId: job.id }),
+    });
+    refresh();
+  };
 
   return (
     <Card className="relative flex max-h-[600px] flex-col overflow-hidden rounded-[11px] bg-card text-sm font-medium leading-5 tracking-normal shadow-sm">
@@ -830,8 +847,18 @@ function EngineJobCard({
           </Button>
         )}
         {job.status === "active" && (
-          <Button size="sm" onClick={runNow}>
-            Run Now
+          <>
+            <Button size="sm" onClick={runNow}>
+              Run Now
+            </Button>
+            <Button size="sm" variant="outline" onClick={forceRun}>
+              Force Run
+            </Button>
+          </>
+        )}
+        {(job.status === "running" || job.runStatus === "running") && (
+          <Button size="sm" variant="outline" onClick={cancelRun}>
+            Cancel Run
           </Button>
         )}
         <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>
@@ -1053,9 +1080,14 @@ function EngineJobCard({
                   if (trimmedUrl && trimmedUrl !== job.url) {
                     payload.newUrl = trimmedUrl;
                   }
-                  const n = parseInt(editMax, 10);
-                  if (!Number.isNaN(n)) {
-                    payload.newMaxItems = n;
+                  const trimmedMax = (editMax || "").trim();
+                  if (trimmedMax === "") {
+                    payload.newMaxItems = ""; // explicit clear -> server sets to null
+                  } else {
+                    const n = parseInt(trimmedMax, 10);
+                    if (!Number.isNaN(n)) {
+                      payload.newMaxItems = n;
+                    }
                   }
                   await fetch("/api/engine/control", {
                     method: "POST",

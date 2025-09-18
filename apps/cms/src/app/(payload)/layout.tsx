@@ -1,40 +1,20 @@
-/* THIS FILE WAS GENERATED AUTOMATICALLY BY PAYLOAD. */
-/* DO NOT MODIFY IT BECAUSE IT COULD BE REWRITTEN AT ANY TIME. */
-import config from "@payload-config";
-import "@payloadcms/next/css";
-import type { ServerFunctionClient } from "payload";
-import { handleServerFunctions, RootLayout } from "@payloadcms/next/layouts";
+// Route-group layout for Payload pages. We already mount the app-level
+// RootLayout in `apps/cms/src/app/layout.tsx`. To avoid nested <html>/<body>
+// and hydration issues, this group layout simply passes through children and
+// mounts client bootstrap.
 import React from "react";
-
-import { importMap } from "./admin/importMap.js";
-import "./custom.scss";
-// Engine styles are scoped via the `.engine-view` class inside the Engine page only
-import "./engine.css";
 import ClientBootstrap from "@/components/ClientBootstrap";
+import "@payloadcms/next/css";
+import "./custom.scss";
+import "./engine.css";
 
-type Args = {
-  children: React.ReactNode;
-};
+type Args = { children: React.ReactNode };
 
-const serverFunction: ServerFunctionClient = async function (args) {
-  "use server";
-  return handleServerFunctions({
-    ...args,
-    config,
-    importMap,
-  });
-};
-
-const Layout = ({ children }: Args) => (
-  <RootLayout
-    config={config}
-    importMap={importMap}
-    serverFunction={serverFunction}
-  >
-    {/* Client bootstrap*/}
-    <ClientBootstrap />
-    {children}
-  </RootLayout>
-);
-
-export default Layout;
+export default function Layout({ children }: Args) {
+  return (
+    <>
+      <ClientBootstrap />
+      {children}
+    </>
+  );
+}

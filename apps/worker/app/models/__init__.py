@@ -7,6 +7,7 @@ from .runs import Run
 from .blocks import Block
 from .savee_users import SaveeUser
 from .user_blocks import UserBlock
+from .block_sources import BlockSource
 
 # Export all models
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "Run",
     "Block",
     "SaveeUser",
-    "UserBlock"
+    "UserBlock",
+    "BlockSource",
 ]

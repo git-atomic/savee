@@ -9,11 +9,11 @@ async function getDbConnection() {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { username: string } }
+  { params }: { params: Promise<{ username: string }> }
 ) {
   try {
     const db = await getDbConnection();
-    const username = params.username;
+    const { username } = await params;
     if (!username) {
       return NextResponse.json(
         { success: false, error: "username is required" },

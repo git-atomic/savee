@@ -51,6 +51,44 @@ def _load_savee_auth_token() -> Optional[str]:
     return None
 
 
+def _parse_saved_at(value: Any) -> Optional[datetime]:
+    """Best-effort normalize saved_at to a timezone-aware datetime, or None.
+    Accepts ISO strings (with optional 'Z'), datetime, or falsy -> None.
+    """
+    try:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            txt = value.strip()
+            if not txt:
+                return None
+            # Handle trailing 'Z' (UTC) or missing offset
+            if txt.endswith('Z'):
+                txt = txt[:-1] + '+00:00'
+            return datetime.fromisoformat(txt)
+    except Exception:
+        return None
+    return None
+
+
+def _format_saved_at_for_db(value: Any) -> Optional[str]:
+    """Return ISO8601 string for saved_at to match VARCHAR column in blocks.
+    We store ISO strings in `blocks.saved_at` (DB column is text/varchar).
+    """
+    try:
+        dt = _parse_saved_at(value)
+        if dt is None:
+            return None
+        # Ensure timezone-aware ISO8601
+        if dt.tzinfo is None:
+            from datetime import timezone as _tz
+            dt = dt.replace(tzinfo=_tz.utc)
+        return dt.isoformat()
+    except Exception:
+        return None
+
 async def _check_if_paused(session: AsyncSession, source_id: int) -> bool:
     """Check if the source has been paused by checking its status in the database."""
     try:
@@ -193,11 +231,13 @@ async def _send_simple_log_to_cms(run_id: int, log_data: dict):
         # Push to in-process SSE bus (best-effort)
         try:
             async with aiohttp.ClientSession(headers=headers) as session:
-                await session.post(
+                async with session.post(
                     f"{cms_url.rstrip('/')}/api/engine/logs",
                     json={"jobId": str(run_id), "log": log_data},
                     timeout=aiohttp.ClientTimeout(total=5)
-                )
+                ) as resp:
+                    # Drain and close response to avoid unclosed connection warnings
+                    await resp.read()
         except Exception:
             pass
     except Exception:
@@ -665,12 +705,23 @@ async def _upsert_block(
         media_type = BlockMediaTypeEnum.unknown
     
     # Create the upsert statement with comprehensive metadata
-    # Compute origin_text string deterministically from URL or username
+    # Compute origin_text from the actual run source to avoid 'i' from item URLs
     try:
-        page_like_url = getattr(item, 'page_url', '') or getattr(item, 'og_url', '') or ''
-        src_type_enum = _detect_source_type(page_like_url)
-        username_guess = getattr(item, 'username', None) or _extract_username(page_like_url or '')
-        origin_text_value = (username_guess if src_type_enum == SourceTypeEnum.user else src_type_enum.value)
+        from sqlalchemy import select as _select
+        src_row = await session.execute(
+            _select(Source.source_type, Source.username).where(Source.id == source_id)
+        )
+        src = src_row.first()
+        if src is not None:
+            src_type, src_username = src
+            try:
+                # Handle enum or plain string
+                src_type_val = src_type.value if hasattr(src_type, 'value') else str(src_type)
+            except Exception:
+                src_type_val = str(src_type) if src_type is not None else None
+            origin_text_value = (src_username if str(src_type_val) == 'user' else src_type_val)
+        else:
+            origin_text_value = None
     except Exception:
         origin_text_value = None
 
@@ -697,7 +748,8 @@ async def _upsert_block(
         og_image_url=getattr(item, 'og_image_url', None),
         og_url=getattr(item, 'og_url', None),
         source_api_url=getattr(item, 'source_api_url', None),
-        saved_at=getattr(item, 'saved_at', None),
+        # blocks.saved_at is a VARCHAR/TEXT column; bind ISO string
+        saved_at=_format_saved_at_for_db(getattr(item, 'saved_at', None)),
         
         # Rich filtering/search metadata
         color_hexes=getattr(item, 'color_hexes', []),
@@ -956,6 +1008,36 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                         # Keep 'found' aligned with processed_count in real-time
                         counters['found'] = processed_count
                         print(f"[SKIP] {item.external_id} - Already exists in DB (#{skipped_count} skipped)")
+
+                        # Even if we skip upload, record provenance so feeds are accurate
+                        try:
+                            from sqlalchemy import select as _select
+                            from app.models import BlockSource, Block
+                            from sqlalchemy.dialects.postgresql import insert as pg_insert
+                            block_id_row = await session.execute(
+                                _select(Block.id).where(Block.external_id == item.external_id)
+                            )
+                            existing_block_id = block_id_row.scalar_one_or_none()
+                            if existing_block_id is not None:
+                                bs_stmt = pg_insert(BlockSource).values(
+                                    block_id=int(existing_block_id),
+                                    source_id=source_id,
+                                    run_id=run_id,
+                                    saved_at=_parse_saved_at(getattr(item, 'saved_at', None))
+                                ).on_conflict_do_nothing(index_elements=['block_id','source_id'])
+                                await session.execute(bs_stmt)
+                                # If this is a user source, create user-block relation too
+                                if savee_user_id:
+                                    from app.models import UserBlock
+                                    ub_stmt = pg_insert(UserBlock).values(
+                                        user_id=savee_user_id,
+                                        block_id=int(existing_block_id)
+                                    ).on_conflict_do_nothing(index_elements=['user_id','block_id'])
+                                    await session.execute(ub_stmt)
+                                await session.commit()
+                        except Exception as _rel_err:
+                            logger.debug(f"Provenance record on skip failed: {_rel_err}")
+
                         # Persist skip counters
                         await update_run_status(session, run_id, RunStatusEnum.running, counters)
                         await session.commit()
@@ -1081,6 +1163,20 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                         print(f"[WRITE/UPLOAD] {item_url}", end=" ", flush=True)
                         
                         block_id = await _upsert_block(session, source_id, run_id, item, r2_key)
+
+                        # Record provenance in block_sources (many-to-many) for strict feeds
+                        try:
+                            from app.models import BlockSource
+                            from sqlalchemy.dialects.postgresql import insert as pg_insert
+                            bs_stmt = pg_insert(BlockSource).values(
+                                block_id=block_id,
+                                source_id=source_id,
+                                run_id=run_id,
+                                saved_at=_parse_saved_at(getattr(item, 'saved_at', None))
+                            ).on_conflict_do_nothing(index_elements=['block_id','source_id'])
+                            await session.execute(bs_stmt)
+                        except Exception as _bs_err:
+                            logger.debug(f"block_sources record skipped: {_bs_err}")
                         
                         # Create user-block relationship if this is user content
                         if savee_user_id:

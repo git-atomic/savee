@@ -14,4 +14,4 @@ const nextConfig = {
   // Disable sourcemap generation for app directory in dev to avoid .map 404 logs
   productionBrowserSourceMaps: false,
 };
-export default nextConfig;
+module.exports = nextConfig;

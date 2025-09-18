@@ -4,10 +4,11 @@ import config from "@payload-config";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { runId: string } }
+  { params }: { params: Promise<{ runId: string }> }
 ) {
   try {
-    const runId = parseInt(params.runId, 10);
+    const { runId: runIdParam } = await params;
+    const runId = parseInt(runIdParam, 10);
     if (!Number.isFinite(runId)) {
       return NextResponse.json(
         { success: false, error: "Invalid run id" },
@@ -55,4 +56,3 @@ export async function POST(
     );
   }
 }
-

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPayload } from "payload";
 import config from "@payload-config";
-import { spawn, ChildProcess } from "child_process";
+import { spawn, spawnSync, ChildProcess } from "child_process";
 import path from "path";
 import type { NextFetchRequestConfig } from "next/server";
 
@@ -26,8 +26,28 @@ async function startWorkerProcess(
   console.log(`🚀 Starting worker for run ${runId} with URL: ${sourceUrl}`);
 
   try {
-    const pythonProcess = spawn(
+    // Resolve a python executable robustly across platforms
+    const candidates = [
+      process.env.PYTHON,
+      process.platform === "win32" ? "py" : undefined,
       "python",
+      "python3",
+    ].filter(Boolean) as string[];
+
+    let pythonCmd = "python";
+    for (const c of candidates) {
+      try {
+        const v = spawnSync(c, ["--version"], { stdio: "ignore" });
+        if (v.status === 0 || v.signal === null) {
+          pythonCmd = c;
+          break;
+        }
+      } catch {}
+    }
+    console.log(`[engine] using Python executable: ${pythonCmd}`);
+
+    const pythonProcess = spawn(
+      pythonCmd,
       [
         "-m",
         "app.cli",
@@ -56,6 +76,22 @@ async function startWorkerProcess(
 
     pythonProcess.stderr?.on("data", (data) => {
       console.error(`Worker ${jobId} stderr: ${data}`);
+    });
+
+    // Handle spawn errors (e.g., python not found)
+    pythonProcess.on("error", async (err) => {
+      console.error(`Worker ${jobId} failed to start:`, err);
+      runningProcesses.delete(jobId);
+      try {
+        await db.query(
+          "UPDATE runs SET status = $1, error_message = $2, updated_at = now() WHERE id = $3",
+          [
+            "error",
+            `Spawn error: ${err instanceof Error ? err.message : String(err)}`,
+            runId,
+          ]
+        );
+      } catch {}
     });
 
     pythonProcess.on("close", async (code) => {
@@ -115,10 +151,24 @@ export async function POST(request: NextRequest) {
     const action = (body as any)?.action;
     const newUrl = (body as any)?.newUrl;
     const newMaxItemsRaw = (body as any)?.newMaxItems;
-    const newMaxItems: number | null =
-      typeof newMaxItemsRaw === "number" && isFinite(newMaxItemsRaw)
-        ? Math.max(0, Math.floor(newMaxItemsRaw))
-        : null;
+    const force = Boolean((body as any)?.force);
+
+    // Accept number, numeric string, or empty string (clear)
+    let maxProvided = false;
+    let newMaxItems: number | null = null;
+    if (typeof newMaxItemsRaw === "number" && isFinite(newMaxItemsRaw)) {
+      newMaxItems = Math.max(0, Math.floor(newMaxItemsRaw));
+      maxProvided = true;
+    } else if (typeof newMaxItemsRaw === "string") {
+      const s = newMaxItemsRaw.trim();
+      if (s === "") {
+        newMaxItems = null;
+        maxProvided = true;
+      } else if (!Number.isNaN(Number(s))) {
+        newMaxItems = Math.max(0, Math.floor(Number(s)));
+        maxProvided = true;
+      }
+    }
 
     if (!jobId || !action) {
       return NextResponse.json(
@@ -133,7 +183,8 @@ export async function POST(request: NextRequest) {
     // Helper: trigger GitHub Actions monitor workflow
     async function triggerGithubMonitor(sourceId?: string): Promise<boolean> {
       try {
-        const token = process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
+        const token =
+          process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
         const repo = process.env.GITHUB_REPO; // e.g., "git-atomic/savee"
         const ref = process.env.GITHUB_REF || "main";
         if (!token || !repo) return false;
@@ -146,19 +197,28 @@ export async function POST(request: NextRequest) {
             Accept: "application/vnd.github+json",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ event_type: "run_monitor", client_payload: { sourceId: sourceId || jobId } }),
+          body: JSON.stringify({
+            event_type: "run_monitor",
+            client_payload: { sourceId: sourceId || jobId },
+          }),
         });
         if (res.ok) return true;
         // Fallback: workflow_dispatch
-        const wd = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`, {
-          method: "POST",
-          headers: {
-            Authorization: `token ${token}`,
-            Accept: "application/vnd.github+json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ ref, inputs: { sourceId: String(sourceId || jobId) } }),
-        });
+        const wd = await fetch(
+          `https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/dispatches`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: "application/vnd.github+json",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              ref,
+              inputs: { sourceId: String(sourceId || jobId) },
+            }),
+          }
+        );
         return wd.ok;
       } catch {
         return false;
@@ -215,7 +275,7 @@ export async function POST(request: NextRequest) {
         let runId: number | undefined;
         // Get source details directly from database
         const sourceResult = await db.query(
-          "SELECT id, url FROM sources WHERE id = $1",
+          "SELECT id, url, source_type, username, status FROM sources WHERE id = $1",
           [sourceId]
         );
 
@@ -228,6 +288,44 @@ export async function POST(request: NextRequest) {
 
         const source = sourceResult.rows[0];
 
+        // Reconstruct a workable URL if missing, and normalize
+        let effectiveUrl: string | null = (source.url as string) || null;
+        if (!effectiveUrl) {
+          const st = String(source.source_type || "").toLowerCase();
+          const un = source.username as string | null;
+          if (st === "home") effectiveUrl = "https://savee.com/";
+          else if (st === "pop") effectiveUrl = "https://savee.com/pop/";
+          else if (st === "user" && un)
+            effectiveUrl = `https://savee.com/${un}/`;
+        }
+        if (effectiveUrl) {
+          // Prepend scheme if missing
+          if (!/^https?:\/\//i.test(effectiveUrl)) {
+            effectiveUrl = `https://${effectiveUrl.replace(/^\/+/, "")}`;
+          }
+        }
+        if (source.status === "disabled") {
+          return NextResponse.json(
+            { success: false, error: "Source is disabled" },
+            { status: 400 }
+          );
+        }
+        if (!effectiveUrl) {
+          return NextResponse.json(
+            { success: false, error: "No usable URL for this source" },
+            { status: 400 }
+          );
+        }
+        // Log but do not block on strict validation; worker can handle
+        try {
+          const u = String(effectiveUrl).trim();
+          if (!/savee\.(?:it|com)\//i.test(u)) {
+            console.warn(
+              `[run_now] non-standard URL for source ${sourceId}: ${u}`
+            );
+          }
+        } catch {}
+
         // Check if there's already a running/paused/pending run in DB
         const activeRun = await db.query(
           `SELECT id, status FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending')
@@ -235,124 +333,161 @@ export async function POST(request: NextRequest) {
           [sourceId]
         );
         if (activeRun.rows.length > 0) {
-          const existingStatus = activeRun.rows[0].status;
-          console.log(`[run_now] found existing ${existingStatus} run for source ${sourceId}`);
-          // If it's just pending, we can reuse it instead of blocking
-          if (existingStatus === 'pending') {
-            console.log(`[run_now] reusing existing pending run ${activeRun.rows[0].id}`);
-            runId = activeRun.rows[0].id;
-          } else {
-            return NextResponse.json(
-              { success: false, error: `Run already ${existingStatus} for this source` },
-              { status: 409 }
+          const existing = activeRun.rows[0];
+          const existingStatus = existing.status as string;
+          console.log(
+            `[run_now] found existing ${existingStatus} run for source ${sourceId}`
+          );
+          // Reuse pending; if running/paused and not forcing, return idempotent success
+          if (existingStatus === "pending") {
+            console.log(
+              `[run_now] reusing existing pending run ${existing.id}`
             );
+            runId = existing.id;
+          } else if (
+            (existingStatus === "running" || existingStatus === "paused") &&
+            !force
+          ) {
+            return NextResponse.json(
+              {
+                success: true,
+                jobId,
+                runId: existing.id,
+                status: existingStatus,
+                message: `Run already ${existingStatus} for this source`,
+              },
+              { status: 200 }
+            );
+          } else if (force) {
+            // Best-effort cancel of current run to allow a fresh start
+            try {
+              const proc = runningProcesses.get(jobId);
+              if (proc && !proc.killed) {
+                try {
+                  proc.kill("SIGTERM");
+                } catch {}
+                runningProcesses.delete(jobId);
+              }
+              await db.query(
+                `UPDATE runs SET status = 'completed', completed_at = now(), error_message = $1, updated_at = now()
+                 WHERE id = $2`,
+                ["Force run requested - previous run cancelled", existing.id]
+              );
+            } catch (e) {
+              console.warn("force-cancel failed", e);
+            }
           }
         }
-          // Also check tracked processes (best-effort)
-          if (runningProcesses.has(jobId)) {
-            return NextResponse.json(
-              { success: false, error: "Job is already running" },
-              { status: 409 }
-            );
-          }
-
-          // Advisory lock to prevent duplicate starts
-          const lock = await db.query(
-            `SELECT pg_try_advisory_lock($1, $2) AS got`,
-            [424242, sourceId]
+        // Also check tracked processes (best-effort)
+        if (runningProcesses.has(jobId)) {
+          return NextResponse.json(
+            {
+              success: true,
+              jobId,
+              status: "running",
+              message: "Job is already running",
+              processInfo: {
+                pid: runningProcesses.get(jobId)?.pid,
+                killed: runningProcesses.get(jobId)?.killed,
+              },
+            },
+            { status: 200 }
           );
-          const got = Boolean(lock.rows?.[0]?.got);
-          if (!got) {
-            return NextResponse.json(
-              { success: false, error: "Job is locked, try again shortly" },
-              { status: 423 }
-            );
-          }
-          try {
-            // Get latest run to derive maxItems
-            const runsResult = await db.query(
-              "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
+        }
+
+        // Attempt to start without advisory locks; we already guard on run status
+        // and tracked processes. This avoids sticky 423s when connections die.
+        try {
+          // Get latest run to derive maxItems
+          const runsResult = await db.query(
+            "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
+            [sourceId]
+          );
+          const maxItemsRaw = runsResult.rows[0]?.max_items ?? null;
+          const maxItems = maxItemsRaw == null ? 0 : Number(maxItemsRaw);
+
+          // Only create new run if we don't have a pending one already
+          if (!runId) {
+            // Reuse latest completed/error run if possible
+            const reuse = await db.query(
+              `SELECT id FROM runs WHERE source_id = $1 AND status IN ('completed','error')
+                   ORDER BY created_at DESC LIMIT 1`,
               [sourceId]
             );
-            const maxItems = runsResult.rows[0]?.max_items ?? null;
-
-            // Only create new run if we don't have a pending one already
-            if (!runId) {
-              // Reuse latest completed/error run if possible
-              const reuse = await db.query(
-                `SELECT id FROM runs WHERE source_id = $1 AND status IN ('completed','error')
-                   ORDER BY created_at DESC LIMIT 1`,
-                [sourceId]
-              );
-              const externalRunner =
-                String(process.env.MONITOR_MODE || "").toLowerCase() ===
-                  "external" ||
-                String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true" ||
-                String(process.env.VERCEL || "") === "1";
-
-              if (reuse.rows.length > 0) {
-                runId = reuse.rows[0].id as number;
-                await db.query(
-                  `UPDATE runs SET status = $1, counters = $2, started_at = $3, completed_at = NULL, error_message = NULL, updated_at = now()
-                     WHERE id = $4`,
-                  [
-                    externalRunner ? "pending" : "running",
-                    JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
-                    new Date(),
-                    runId,
-                  ]
-                );
-              } else {
-                const runResult = await db.query(
-                  `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
-                     VALUES ($1, $2, $3, $4, $5, $6)
-                     RETURNING id`,
-                  [
-                    sourceId,
-                    "manual",
-                    maxItems,
-                    externalRunner ? "pending" : "running",
-                    JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
-                    new Date(),
-                  ]
-                );
-                runId = runResult.rows[0].id as number;
-              }
-            }
-            
             const externalRunner =
               String(process.env.MONITOR_MODE || "").toLowerCase() ===
                 "external" ||
-              String(process.env.EXTERNAL_RUNNER || "").toLowerCase() === "true" ||
+              String(process.env.EXTERNAL_RUNNER || "").toLowerCase() ===
+                "true" ||
               String(process.env.VERCEL || "") === "1";
 
-            if (externalRunner) {
-              // Do not spawn; return run details for external runner
-              const dispatched = await triggerGithubMonitor(String(sourceId));
-              const hasToken = !!(process.env.GITHUB_ACTIONS_TOKEN || process.env.GITHUB_DISPATCH_TOKEN);
-              const repoName = process.env.GITHUB_REPO || "";
-              const refName = process.env.GITHUB_REF || "main";
-              console.log(
-                `[run_now] dispatched=${dispatched}, token=${hasToken}, repo=${!!repoName}`
+            if (reuse.rows.length > 0) {
+              runId = reuse.rows[0].id as number;
+              await db.query(
+                `UPDATE runs SET status = $1, counters = $2, started_at = $3, completed_at = NULL, error_message = NULL, updated_at = now()
+                     WHERE id = $4`,
+                [
+                  externalRunner ? "pending" : "running",
+                  JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
+                  new Date(),
+                  runId,
+                ]
               );
-              return NextResponse.json({
-                success: true,
-                jobId,
-                runId,
-                mode: "external",
-                dispatched,
-                message: dispatched
-                  ? "Run enqueued and monitor dispatched"
-                  : "Run enqueued as pending for external runner",
-                debug: { hasToken, hasRepo: !!repoName, ref: refName },
-              });
+            } else {
+              const runResult = await db.query(
+                `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
+                     VALUES ($1, $2, $3, $4, $5, $6)
+                     RETURNING id`,
+                [
+                  sourceId,
+                  "manual",
+                  maxItems,
+                  externalRunner ? "pending" : "running",
+                  JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
+                  new Date(),
+                ]
+              );
+              runId = runResult.rows[0].id as number;
             }
+          }
+
+          const externalRunner =
+            String(process.env.MONITOR_MODE || "").toLowerCase() ===
+              "external" ||
+            String(process.env.EXTERNAL_RUNNER || "").toLowerCase() ===
+              "true" ||
+            String(process.env.VERCEL || "") === "1";
+
+          if (externalRunner) {
+            // Do not spawn; return run details for external runner
+            const dispatched = await triggerGithubMonitor(String(sourceId));
+            const hasToken = !!(
+              process.env.GITHUB_ACTIONS_TOKEN ||
+              process.env.GITHUB_DISPATCH_TOKEN
+            );
+            const repoName = process.env.GITHUB_REPO || "";
+            const refName = process.env.GITHUB_REF || "main";
+            console.log(
+              `[run_now] dispatched=${dispatched}, token=${hasToken}, repo=${!!repoName}`
+            );
+            return NextResponse.json({
+              success: true,
+              jobId,
+              runId,
+              mode: "external",
+              dispatched,
+              message: dispatched
+                ? "Run enqueued and monitor dispatched"
+                : "Run enqueued as pending for external runner",
+              debug: { hasToken, hasRepo: !!repoName, ref: refName },
+            });
+          }
 
           // Start worker process using helper function (inline mode)
           const started = await startWorkerProcess(
             jobId,
             runId,
-            source.url,
+            effectiveUrl,
             maxItems ?? 0,
             db
           );
@@ -364,10 +499,7 @@ export async function POST(request: NextRequest) {
             );
           }
         } finally {
-          await db.query(`SELECT pg_advisory_unlock($1, $2)`, [
-            424242,
-            sourceId,
-          ]);
+          // no-op
         }
         break;
       }
@@ -393,7 +525,7 @@ export async function POST(request: NextRequest) {
 
       case "edit": {
         const normalizedUrl = (newUrl || "").trim();
-        const onlyUpdateMax = !normalizedUrl && newMaxItems !== null;
+        const onlyUpdateMax = !normalizedUrl && maxProvided;
         if (!normalizedUrl && !onlyUpdateMax) {
           return NextResponse.json(
             { success: false, error: "Provide newUrl or newMaxItems" },
@@ -458,8 +590,9 @@ export async function POST(request: NextRequest) {
           "SELECT max_items FROM runs WHERE source_id = $1 ORDER BY created_at DESC LIMIT 1",
           [onlyUpdateMax ? parseInt(jobId) : targetSourceId]
         );
-        const maxItems2 =
-          newMaxItems !== null ? newMaxItems : runsResult2.rows[0]?.max_items ?? null;
+        const baseMax = runsResult2.rows[0]?.max_items ?? null;
+        const maxItems2 = maxProvided ? newMaxItems : baseMax;
+        const normalizedMaxItems = maxItems2 == null ? 0 : Number(maxItems2);
 
         const runResult2 = await db.query(
           `INSERT INTO runs (source_id, kind, max_items, status, counters, started_at)
@@ -468,7 +601,7 @@ export async function POST(request: NextRequest) {
           [
             targetSourceId,
             "manual",
-            maxItems2,
+            normalizedMaxItems,
             "pending",
             JSON.stringify({ found: 0, uploaded: 0, errors: 0 }),
             new Date(),
@@ -481,11 +614,16 @@ export async function POST(request: NextRequest) {
         const started2 = await startWorkerProcess(
           String(targetSourceId),
           runId2,
-          onlyUpdateMax ? (await (async () => {
-            const res = await db.query("SELECT url FROM sources WHERE id = $1", [targetSourceId]);
-            return res.rows[0]?.url as string;
-          })()) : normalizedUrl,
-          maxItems2 ?? 0,
+          onlyUpdateMax
+            ? await (async () => {
+                const res = await db.query(
+                  "SELECT url FROM sources WHERE id = $1",
+                  [targetSourceId]
+                );
+                return res.rows[0]?.url as string;
+              })()
+            : normalizedUrl,
+          normalizedMaxItems,
           db
         );
         if (!started2) {

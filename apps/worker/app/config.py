@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = Field(default=20, description="Database connection pool size")
     DB_MAX_OVERFLOW: int = Field(default=30, description="Database max pool overflow")
     DB_POOL_TIMEOUT: int = Field(default=30, description="Database pool timeout seconds")
+    DB_SCHEMA: Optional[str] = Field(default=None, description="Postgres schema (search_path)")
     
     # Queue/RabbitMQ (optional; GitHub Actions path does not require AMQP)
     AMQP_URL: Optional[str] = Field(default=None, description="RabbitMQ connection URL (optional)")
@@ -245,6 +246,14 @@ class Settings(BaseSettings):
             elif ssl_from_mode is not None:
                 qp['ssl'] = ssl_from_mode
 
+            # Remove psycopg-only params that asyncpg doesn't understand
+            for k in [
+                'channel_binding',  # psycopg only
+                'target_session_attrs',  # psycopg only
+            ]:
+                if k in qp:
+                    qp.pop(k, None)
+
             new_query = urlencode(qp)
             url = urlunsplit((sp.scheme, sp.netloc, sp.path, new_query, sp.fragment))
         except Exception:
@@ -261,14 +270,21 @@ class Settings(BaseSettings):
             sp = urlsplit(self.async_database_url)
             qp = { (k or '').lower(): (v or '') for k, v in parse_qsl(sp.query, keep_blank_values=True) }
             ssl_val = (qp.get('ssl') or '').strip().lower()
+            base: Dict[str, Any] = {}
             if ssl_val in {'1', 'true', 'yes', 'on', 'require'}:
-                return { 'ssl': True }
-            if ssl_val in {'0', 'false', 'no', 'off', 'disable'}:
-                return { 'ssl': False }
+                base['ssl'] = True
+            elif ssl_val in {'0', 'false', 'no', 'off', 'disable'}:
+                base['ssl'] = False
+            # Apply search_path if schema provided
+            if self.DB_SCHEMA:
+                base['server_settings'] = { 'search_path': f"{self.DB_SCHEMA}, public" }
+            return base if base else {}
         except Exception:
-            pass
-        # Default to secure connection
-        return { 'ssl': True }
+            # Default to secure connection with optional schema
+            base: Dict[str, Any] = { 'ssl': True }
+            if self.DB_SCHEMA:
+                base['server_settings'] = { 'search_path': f"{self.DB_SCHEMA}, public" }
+            return base
     
     @property
     def sync_database_url(self) -> str:

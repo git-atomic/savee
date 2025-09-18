@@ -8,48 +8,49 @@ type Props = {
 };
 
 export default function BlockOriginCell({ rowData }: Props) {
-  // Blocks.list rows often contain relationship IDs, not populated docs
-  const sourceField = rowData?.source ?? rowData?.source_id;
-  const sourceId: string | number | undefined = useMemo(() => {
-    if (!sourceField) return undefined;
-    if (typeof sourceField === "object" && sourceField?.id)
-      return sourceField.id;
-    return sourceField as string | number;
-  }, [sourceField]);
-
-  const [text, setText] = useState<string>("");
+  const blockId: number | undefined = rowData?.id || rowData?._id;
+  const [prov, setProv] = useState<{
+    home: boolean;
+    pop: boolean;
+    users: string[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
       try {
-        if (!sourceId) {
-          setText("");
+        if (!blockId) {
+          setProv(null);
           return;
         }
-        const res = await fetch(`/api/sources/${sourceId}`, {
+        const res = await fetch(`/api/blocks/${blockId}/provenance`, {
           credentials: "include",
         });
         if (!res.ok) {
-          setText("");
+          setProv(null);
           return;
         }
         const data = await res.json();
-        const srcType = data?.doc?.sourceType || data?.sourceType;
-        const username = data?.doc?.username || data?.username;
-        const value = srcType === "user" ? username || "user" : srcType || "";
-        if (!cancelled) setText(value);
+        const om = data?.origin_map || {};
+        const users: string[] = Array.isArray(om.users)
+          ? om.users.filter(
+              (u: any) => typeof u === "string" && u.trim().length > 0
+            )
+          : [];
+        const home = Boolean(om.home);
+        const pop = Boolean(om.pop);
+        if (!cancelled) setProv({ home, pop, users });
       } catch {
-        if (!cancelled) setText("");
+        if (!cancelled) setProv(null);
       }
     }
     run();
     return () => {
       cancelled = true;
     };
-  }, [sourceId]);
+  }, [blockId]);
 
-  const style: React.CSSProperties = (() => {
+  const chip = (label: string, kind: "home" | "pop" | "user") => {
     const base: React.CSSProperties = {
       display: "inline-flex",
       alignItems: "center",
@@ -58,39 +59,58 @@ export default function BlockOriginCell({ rowData }: Props) {
       fontSize: 12,
       fontWeight: 600,
       border: "1px solid",
+      marginRight: 6,
     };
-    if (text === "home")
-      return {
-        ...base,
-        backgroundColor: "#E0E7FF",
-        color: "#3730A3",
-        borderColor: "#C7D2FE",
-      };
-    if (text === "pop")
-      return {
-        ...base,
-        backgroundColor: "#F5D0FE",
-        color: "#86198F",
-        borderColor: "#F0ABFC",
-      };
-    if (!text)
-      return {
-        ...base,
-        backgroundColor: "#F3F4F6",
-        color: "#4B5563",
-        borderColor: "#E5E7EB",
-      };
-    return {
-      ...base,
-      backgroundColor: "#E9D5FF",
-      color: "#6B21A8",
-      borderColor: "#D8B4FE",
-    };
-  })();
+    if (kind === "home")
+      return (
+        <span
+          key={`home-${label}`}
+          style={{
+            ...base,
+            backgroundColor: "#E0E7FF",
+            color: "#3730A3",
+            borderColor: "#C7D2FE",
+          }}
+        >
+          {label}
+        </span>
+      );
+    if (kind === "pop")
+      return (
+        <span
+          key={`pop-${label}`}
+          style={{
+            ...base,
+            backgroundColor: "#F5D0FE",
+            color: "#86198F",
+            borderColor: "#F0ABFC",
+          }}
+        >
+          {label}
+        </span>
+      );
+    return (
+      <span
+        key={`user-${label}`}
+        style={{
+          ...base,
+          backgroundColor: "#E9D5FF",
+          color: "#6B21A8",
+          borderColor: "#D8B4FE",
+        }}
+      >
+        {label}
+      </span>
+    );
+  };
 
-  return (
-    <span style={style} title={text}>
-      {text || ""}
-    </span>
-  );
+  if (!prov) return <span className="text-xs text-gray-500">—</span>;
+
+  const chips: JSX.Element[] = [];
+  if (prov.home) chips.push(chip("home", "home"));
+  if (prov.pop) chips.push(chip("pop", "pop"));
+  for (const u of prov.users) chips.push(chip(u, "user"));
+
+  if (!chips.length) return <span className="text-xs text-gray-500">—</span>;
+  return <span>{chips}</span>;
 }

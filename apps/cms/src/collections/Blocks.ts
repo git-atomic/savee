@@ -82,15 +82,15 @@ export const Blocks: CollectionConfig = {
         },
       },
     },
-    // Origin (computed from source.sourceType / username)
+    // Appears In (home, pop, users consolidated)
     {
       name: "origin",
       type: "ui",
-      label: "Savee User / Origin",
+      label: "Appears In",
       admin: {
-        description: "home | pop | username (computed)",
+        description: "Where this block appears: Home, Popular, and Users",
         components: {
-          Cell: "@/components/BlockOriginCell",
+          Cell: "@/components/MultiOriginCell",
         },
       },
     },
