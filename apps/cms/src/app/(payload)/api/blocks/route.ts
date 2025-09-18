@@ -15,9 +15,17 @@ export async function GET(req: NextRequest) {
     const runId = searchParams.get("runId");
     const q = searchParams.get("q");
     const limitParam = searchParams.get("limit");
+    const mode = (searchParams.get("mode") || "").toLowerCase(); // "events" => one row per origin occurrence
     const cursor = searchParams.get("cursor");
 
-    const limit = Math.min(parseInt(limitParam || "20"), 100);
+    const rawLimit = (() => {
+      const lp = (limitParam || "").trim().toLowerCase();
+      if (lp === "all" || lp === "*") return 1000; // safety cap
+      const n = parseInt(limitParam || "20", 10);
+      if (!Number.isFinite(n) || n <= 0) return 20;
+      return n;
+    })();
+    const limit = Math.min(rawLimit, 1000);
 
     // Parse cursor for pagination
     let cursorSavedAt: string | null = null;
@@ -106,7 +114,8 @@ export async function GET(req: NextRequest) {
     const whereParts = [normalizedBlock, normalizedOrigin].filter(Boolean);
     const whereSQL = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
 
-    const query = `
+    // MODE A: unique blocks (default)
+    let query = `
       SELECT 
         b.*, 
         '${origin || "mixed"}' as origin,
@@ -148,6 +157,52 @@ export async function GET(req: NextRequest) {
       ORDER BY b.saved_at DESC NULLS LAST, b.created_at DESC NULLS LAST
       LIMIT $${params.length + 1}
     `;
+
+    // MODE B: events view (one row per origin occurrence in block_sources)
+    if (mode === "events") {
+      // Build events WHERE based on origin/user filters
+      const evWhere: string[] = [];
+      if (origin === "home" || origin === "pop") {
+        params.push(origin);
+        evWhere.push(`s.source_type::text = $${params.length}`);
+      } else if (origin === "user" && username) {
+        params.push("user");
+        params.push(username);
+        evWhere.push(`s.source_type::text = $${params.length - 1}`);
+        evWhere.push(`s.username = $${params.length}`);
+      }
+      if (sourceId) {
+        params.push(parseInt(sourceId));
+        evWhere.push(`bs.source_id = $${params.length}`);
+      }
+      if (runId) {
+        params.push(parseInt(runId));
+        evWhere.push(`bs.run_id = $${params.length}`);
+      }
+      const evWhereSQL = evWhere.length ? `WHERE ${evWhere.join(" AND ")}` : "";
+
+      query = `
+        SELECT 
+          b.*, 
+          s.source_type::text AS origin,
+          s.username AS source_username,
+          jsonb_build_object(
+            'home', (s.source_type::text = 'home'),
+            'pop', (s.source_type::text = 'pop'),
+            'users', CASE WHEN s.source_type::text = 'user' AND s.username IS NOT NULL THEN jsonb_build_array(s.username) ELSE '[]'::jsonb END,
+            'users_count', CASE WHEN s.source_type::text = 'user' AND s.username IS NOT NULL THEN 1 ELSE 0 END,
+            'tags', CASE WHEN s.source_type::text = 'user' AND s.username IS NOT NULL THEN jsonb_build_array(s.username) ELSE jsonb_build_array(s.source_type::text) END
+          ) AS origin_map,
+          bs.saved_at AS appeared_at,
+          bs.run_id AS appeared_run_id
+        FROM block_sources bs
+        JOIN blocks b ON b.id = bs.block_id
+        JOIN sources s ON s.id = bs.source_id
+        ${evWhereSQL}
+        ORDER BY bs.saved_at DESC NULLS LAST, b.created_at DESC NULLS LAST
+        LIMIT $${params.length + 1}
+      `;
+    }
     params.push(limit);
 
     console.log("Blocks API Query:", query);
