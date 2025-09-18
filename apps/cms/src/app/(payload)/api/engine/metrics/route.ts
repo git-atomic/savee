@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
       queued: queued.rows?.[0]?.c ?? 0,
       running: running.rows?.[0]?.c ?? 0,
       paused: paused.rows?.[0]?.c ?? 0,
+      // Derived active (sources): count of sources in 'active' state
+      // Note: jobs listing derives this live; here we keep base counters.
       lastSuccessAt: lastSuccess.rows?.[0]?.t ?? null,
       lastErrorAt: lastError.rows?.[0]?.t ?? null,
       workerParallelism: Number.isFinite(workerParallelism)

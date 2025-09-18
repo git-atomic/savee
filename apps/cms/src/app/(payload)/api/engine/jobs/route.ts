@@ -40,7 +40,7 @@ interface JobData {
   sourceType: "home" | "pop" | "user";
   username?: string;
   maxItems: number;
-  status: "active" | "running" | "paused" | "stopped" | "error" | "completed";
+  status: "active" | "running" | "paused" | "queued" | "stopped" | "error" | "completed";
   runStatus?: string;
   counters: {
     found: number;
@@ -178,15 +178,17 @@ export async function GET(request: NextRequest) {
           status:
             latestRun?.status === "running" && !isStaleRunning
               ? "running"
-              : (source.status as any) === "paused"
-                ? "paused"
-                : (source.status as any) === "stopped"
-                  ? "stopped"
-                  : latestRun?.status === "error"
-                    ? "error"
-                    : latestRun?.status === "completed"
-                      ? "active"
-                      : (source.status as any),
+              : latestRun?.status === "pending"
+                ? "queued"
+                : (source.status as any) === "paused"
+                  ? "paused"
+                  : (source.status as any) === "stopped"
+                    ? "stopped"
+                    : latestRun?.status === "error"
+                      ? "error"
+                      : latestRun?.status === "completed"
+                        ? "active"
+                        : (source.status as any),
           runStatus: isStaleRunning ? "stale" : (latestRun?.status as string), // expose stale
           counters:
             typeof latestRun?.counters === "string"
