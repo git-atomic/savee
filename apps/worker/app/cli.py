@@ -961,6 +961,33 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
             except Exception:
                 pass
 
+            # Capacity guard helpers
+            async def _get_limits() -> Optional[dict]:
+                try:
+                    cms_url = getattr(settings, 'CMS_URL', None) or os.getenv('CMS_URL') or ""
+                    if not cms_url:
+                        return None
+                    async with aiohttp.ClientSession() as s:
+                        async with s.get(f"{cms_url.rstrip('/')}/api/engine/limits", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                            if resp.status == 200:
+                                return await resp.json()
+                except Exception:
+                    return None
+                return None
+
+            def _limits_exceeded(lim: Optional[dict]) -> tuple[bool, str]:
+                try:
+                    if not lim:
+                        return (False, "")
+                    near_r2 = bool(lim.get('r2', {}).get('nearLimit'))
+                    near_db = bool(lim.get('db', {}).get('nearLimit'))
+                    if near_r2 or near_db:
+                        reason = "R2 near limit" if near_r2 else "DB near limit"
+                        return (True, reason)
+                except Exception:
+                    pass
+                return (False, "")
+
             async with storage:
                 processed_count = 0
                 skipped_count = 0
@@ -977,6 +1004,26 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
                 # Track unique external IDs seen in this run session to avoid counting duplicates from listing glitches
                 seen_in_session: set[str] = set()
                 async for item in item_iterator:
+                    # Check capacity between items
+                    try:
+                        limits = await _get_limits()
+                        exceeded, reason = _limits_exceeded(limits)
+                        if exceeded:
+                            print(f"[CAPACITY] {reason}; stopping run to avoid overage")
+                            await _send_simple_log_to_cms(run_id, {
+                                "type": "CAPACITY",
+                                "status": "🛑",
+                                "message": f"Capacity guard hit: {reason}; auto-stopping"
+                            })
+                            # Mark source paused so UI shows 'stopped'
+                            try:
+                                await session.execute(update(Source).where(Source.id == source_id).values(status=SourceStatusEnum.paused))
+                                await session.commit()
+                            except Exception:
+                                pass
+                            break
+                    except Exception:
+                        pass
                     processed_count += 1
                     
                     # Avoid double counting the same item within this session

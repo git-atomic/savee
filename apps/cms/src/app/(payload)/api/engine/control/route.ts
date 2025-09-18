@@ -395,6 +395,27 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        // Capacity guard: check R2/DB limits unless forcing
+        try {
+          const limitsRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/engine/limits`, { cache: 'no-store' });
+          if (limitsRes.ok) {
+            const limits = await limitsRes.json();
+            const nearR2 = !!limits?.r2?.nearLimit;
+            const nearDb = !!limits?.db?.nearLimit;
+            if ((nearR2 || nearDb) && !force) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: "Capacity near limits",
+                  details: { r2: limits?.r2, db: limits?.db },
+                  hint: "Pass force:true to override",
+                },
+                { status: 429 }
+              );
+            }
+          }
+        } catch {}
+
         // Attempt to start without advisory locks; we already guard on run status
         // and tracked processes. This avoids sticky 423s when connections die.
         try {
