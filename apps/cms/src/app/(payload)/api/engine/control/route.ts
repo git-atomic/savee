@@ -226,6 +226,47 @@ export async function POST(request: NextRequest) {
     }
 
     switch (action) {
+      case "stop": {
+        const sourceId = parseInt(jobId);
+        // Attempt to kill any tracked worker process
+        try {
+          const proc = runningProcesses.get(jobId);
+          if (proc && !proc.killed) {
+            try {
+              proc.kill("SIGTERM");
+            } catch {}
+            runningProcesses.delete(jobId);
+          }
+        } catch {}
+
+        // Mark latest active run as completed with stop reason
+        try {
+          const active = await db.query(
+            `SELECT id FROM runs WHERE source_id = $1 AND status IN ('running','paused','pending')
+             ORDER BY created_at DESC LIMIT 1`,
+            [sourceId]
+          );
+          if (active.rows.length > 0) {
+            const rid = active.rows[0].id as number;
+            await db.query(
+              `UPDATE runs SET status = 'completed', completed_at = now(), error_message = $1, updated_at = now() WHERE id = $2`,
+              ["Stopped by user", rid]
+            );
+          }
+        } catch (e) {
+          console.warn("stop: failed to mark run completed", e);
+        }
+
+        // Update source status to completed so UI reflects stopped
+        try {
+          await db.query(
+            "UPDATE sources SET status = $1, updated_at = now() WHERE id = $2",
+            ["completed", sourceId]
+          );
+        } catch {}
+
+        return NextResponse.json({ success: true, jobId, message: "Job stopped" });
+      }
       case "pause":
         // Immediate UI feedback: mark latest running run paused
         await db.query(
@@ -397,7 +438,10 @@ export async function POST(request: NextRequest) {
 
         // Capacity guard: check R2/DB limits unless forcing
         try {
-          const limitsRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/engine/limits`, { cache: 'no-store' });
+          const limitsRes = await fetch(
+            `${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/engine/limits`,
+            { cache: "no-store" }
+          );
           if (limitsRes.ok) {
             const limits = await limitsRes.json();
             const nearR2 = !!limits?.r2?.nearLimit;
