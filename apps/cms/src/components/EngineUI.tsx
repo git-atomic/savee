@@ -104,11 +104,12 @@ export default function EngineUI() {
   const [query, setQuery] = React.useState("");
   const [limits, setLimits] = React.useState<EngineLimits | null>(null);
   const [forceStart, setForceStart] = React.useState(false);
-  type StatusKey = "active" | "running" | "paused" | "error" | "completed";
+  type StatusKey = "active" | "running" | "paused" | "stopped" | "error" | "completed";
   const STATUS_OPTIONS: { key: StatusKey; label: string; dot: string }[] = [
     { key: "running", label: "Running", dot: "bg-emerald-500" },
     { key: "active", label: "Active", dot: "bg-blue-500" },
     { key: "paused", label: "Paused", dot: "bg-zinc-500" },
+    { key: "stopped", label: "Stopped", dot: "bg-purple-500" },
     { key: "error", label: "Error", dot: "bg-red-500" },
     { key: "completed", label: "Completed", dot: "bg-sky-500" },
   ];
@@ -118,6 +119,7 @@ export default function EngineUI() {
     running: true,
     active: true,
     paused: true,
+    stopped: true,
     error: true,
     completed: true,
   });

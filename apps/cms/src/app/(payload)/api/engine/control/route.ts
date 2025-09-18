@@ -257,11 +257,11 @@ export async function POST(request: NextRequest) {
           console.warn("stop: failed to mark run completed", e);
         }
 
-        // Update source status to completed so UI reflects stopped
+        // Update source status to stopped so UI reflects stopped
         try {
           await db.query(
             "UPDATE sources SET status = $1, updated_at = now() WHERE id = $2",
-            ["completed", sourceId]
+            ["stopped", sourceId]
           );
         } catch {}
 
