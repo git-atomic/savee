@@ -438,10 +438,12 @@ export async function POST(request: NextRequest) {
 
         // Capacity guard: check R2/DB limits unless forcing
         try {
-          const limitsRes = await fetch(
-            `${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/engine/limits`,
-            { cache: "no-store" }
-          );
+          // Build absolute origin for server-side fetch to avoid relative URL issues
+          const reqUrl = new URL(request.url);
+          const origin = `${reqUrl.protocol}//${reqUrl.host}`;
+          const limitsRes = await fetch(`${origin}/api/engine/limits`, {
+            cache: "no-store",
+          });
           if (limitsRes.ok) {
             const limits = await limitsRes.json();
             const nearR2 = !!limits?.r2?.nearLimit;

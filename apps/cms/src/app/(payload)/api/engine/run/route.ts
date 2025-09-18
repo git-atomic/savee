@@ -39,10 +39,11 @@ export async function POST(request: NextRequest) {
     const forceParam = (urlObj.searchParams.get("force") || "").toLowerCase();
     const force = Boolean(forceBody) || forceParam === "1" || forceParam === "true";
     try {
-      const limitsRes = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/engine/limits`,
-        { cache: "no-store" }
-      );
+      const reqUrl = new URL(request.url);
+      const origin = `${reqUrl.protocol}//${reqUrl.host}`;
+      const limitsRes = await fetch(`${origin}/api/engine/limits`, {
+        cache: "no-store",
+      });
       if (limitsRes.ok) {
         const limits = await limitsRes.json();
         const nearR2 = !!limits?.r2?.nearLimit;
