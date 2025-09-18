@@ -51,6 +51,7 @@ export default function Feed({ initial, nextCursor, query }: FeedProps) {
   const [cursor, setCursor] = React.useState<string | undefined>(nextCursor);
   const [loading, setLoading] = React.useState(false);
   const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const [booting, setBooting] = React.useState(true);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -63,7 +64,10 @@ export default function Feed({ initial, nextCursor, query }: FeedProps) {
           title: b.title || b.og_title || "",
         }))
       );
-      if (!cancelled) setItems(mapped.filter((m) => m.src));
+      if (!cancelled) {
+        setItems(mapped.filter((m) => m.src));
+        setBooting(false);
+      }
     }
     mapInitial();
     return () => {
@@ -120,12 +124,21 @@ export default function Feed({ initial, nextCursor, query }: FeedProps) {
           <a
             key={i.id}
             href={i.href}
-            className="mb-3 block break-inside-avoid rounded-[11px] overflow-hidden border"
+            className="mb-3 block break-inside-avoid rounded-[11px] overflow-hidden border bg-neutral-50 dark:bg-neutral-900"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={i.src} alt={i.title} className="w-full h-auto" />
           </a>
         ))}
+        {booting &&
+          Array.from({ length: 16 }).map((_, idx) => (
+            <div
+              key={`s-${idx}`}
+              className="mb-3 block break-inside-avoid rounded-[11px] overflow-hidden border"
+            >
+              <div className="w-full aspect-[4/5] animate-pulse bg-neutral-200 dark:bg-neutral-800" />
+            </div>
+          ))}
       </div>
       <div ref={sentinelRef} className="h-8" />
     </div>
