@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
                     : latestRun?.status === "error"
                       ? "error"
                       : latestRun?.status === "completed"
-                        ? "active"
+                        ? (source as any).sourceType === "blocks" ? "completed" : "active"
                         : (source.status as any),
           runStatus: isStaleRunning ? "stale" : (latestRun?.status as string), // expose stale
           counters:

@@ -208,6 +208,11 @@ def _detect_source_type(url: str) -> SourceTypeEnum:
         return SourceTypeEnum.user
     
     u = url.lower().strip()
+    
+    # Detect bulk imports (generated URLs for bulk jobs)
+    if 'bulk_import_' in u:
+        return SourceTypeEnum.blocks
+    
     # Support both savee.it and savee.com domains
     if u in {"https://savee.it", "https://savee.it/", "savee.it", 
              "https://savee.com", "https://savee.com/", "savee.com"}:
@@ -247,9 +252,10 @@ async def _send_simple_log_to_cms(run_id: int, log_data: dict):
 def _generate_r2_key(url: str, external_id: str) -> str:
     """Generate organized R2 key for blocks based on source type and URL.
     Blocks must be stored under:
-      - user:    {username}/blocks/{external_id}
+      - user:    users/{username}/blocks/{external_id}
       - home:    home/blocks/{external_id}
       - pop:     pop/blocks/{external_id}
+      - blocks:  blocks/{external_id}  (bulk imports)
     """
     source_type = _detect_source_type(url)
 
@@ -257,6 +263,8 @@ def _generate_r2_key(url: str, external_id: str) -> str:
         return f"home/blocks/{external_id}"
     elif source_type == SourceTypeEnum.pop:
         return f"pop/blocks/{external_id}"
+    elif source_type == SourceTypeEnum.blocks:
+        return f"blocks/{external_id}"  # Bulk imports go to 'blocks/' root
     elif source_type == SourceTypeEnum.user:
         username = _extract_username(url)
         if username:
@@ -317,17 +325,22 @@ async def _create_or_update_savee_user(session: AsyncSession, username: str, url
                         await session.execute(text("ALTER TABLE savee_users ADD COLUMN IF NOT EXISTS avatar_r2_key VARCHAR(500)"))
                     except Exception:
                         pass
-                    # Attempt avatar upload to R2 when image available
+                    # Attempt avatar upload to R2 when image available - ALWAYS re-upload on re-runs
                     try:
                         avatar_url = profile_data.get('profile_image_url')
                         if avatar_url:
                             from app.storage.r2 import get_storage
                             storage = await get_storage()
+                            print(f"[AVATAR] Uploading avatar for {username}: {avatar_url[:80]}...")
                             avatar_key = await storage.upload_avatar(username, avatar_url)
                             # Keep original url for preview; also store R2 key for CMS usage
                             profile_data['profile_image_url'] = avatar_url
                             profile_data['avatar_r2_key'] = avatar_key
+                            print(f"[AVATAR] ✓ Uploaded avatar for {username} -> {avatar_key}")
+                        else:
+                            print(f"[AVATAR] ⚠ No avatar URL found for {username}")
                     except Exception as _avatar_err:
+                        print(f"[AVATAR] ✗ Avatar upload failed for {username}: {_avatar_err}")
                         logger.debug(f"Avatar upload skipped for {username}: {_avatar_err}")
                     
                     if existing_user:
@@ -412,28 +425,103 @@ def _extract_user_profile_data(html_content: str, username: str, url: str) -> di
             if " - Savee" in title:
                 profile_data['display_name'] = title.replace(" - Savee", "").strip()
         
-        # Extract profile avatar from the exact header container first
+        # Extract profile avatar with comprehensive patterns
+        # Priority: 1) Header container in HTML, 2) JSON initial state, 3) og:image, 4) fallback regex
+        # Actual Savee avatar patterns (from user-provided HTML):
+        #   - Default: https://m.savee-cdn.com/img/default-avatar-X.jpg
+        #   - Custom:  https://dm.savee-cdn.com/user-avatar/original/...
+        avatar_candidates = []
+        
+        # Method 1: Extract from header container (z-index-user-header-avatar container)
         try:
-            container = re.search(r'z-index-user-header-avatar[^>]*>\s*<img[^>]+src=\"([^\"]+)', html_content, re.IGNORECASE | re.DOTALL)
-            if container and container.group(1):
-                candidate = container.group(1)
-                # Only accept canonical sources
-                if re.search(r'dr\.savee-cdn\.com/avatars/', candidate, re.IGNORECASE) or re.search(r'st\.savee-cdn\.com/img/default-avatar-\d+\.jpg', candidate, re.IGNORECASE):
-                    profile_data['profile_image_url'] = candidate
+            # Look for avatar in the user header container - this is the most reliable
+            header_patterns = [
+                r'z-index-user-header-avatar[^>]*>\s*<img[^>]+src=["\']([^"\']+)',
+                r'class="[^"]*avatar[^"]*"[^>]*>\s*<img[^>]+src=["\']([^"\']+)',
+                r'<img[^>]+class="[^"]*avatar[^"]*"[^>]*src=["\']([^"\']+)',
+            ]
+            for pattern in header_patterns:
+                match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
+                if match:
+                    candidate = match.group(1)
+                    # Use less strict validation - trust the container finding
+                    if candidate.startswith('http'):
+                        avatar_candidates.append(candidate)
+                        break
         except Exception:
             pass
 
-        # Fallbacks if header container was not matched
-        if 'profile_image_url' not in profile_data:
-            avatar_dr = re.search(r'https?://dr\.savee-cdn\.com/avatars/[^"\']+', html_content, re.IGNORECASE)
-            default_full = re.search(r'https?://st\.savee-cdn\.com/img/default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
-            default_file = re.search(r'default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
-            if avatar_dr:
-                profile_data['profile_image_url'] = avatar_dr.group(0)
-            elif default_full:
-                profile_data['profile_image_url'] = default_full.group(0)
-            elif default_file:
-                profile_data['profile_image_url'] = f"https://st.savee-cdn.com/img/{default_file.group(0)}"
+        # Method 2: Extract from __INITIAL_STATE__ or __NEXT_DATA__ JSON
+        try:
+            json_match = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.+?});', html_content, re.DOTALL)
+            if not json_match:
+                json_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>([^<]+)</script>', html_content, re.IGNORECASE)
+            if json_match:
+                json_text = json_match.group(1)
+                # Search for avatar URLs in the JSON
+                avatar_patterns_json = [
+                    r'"avatar(?:Url|_url|Image)?"\s*:\s*"([^"]+savee-cdn\.com[^"]+)"',
+                    r'"profile_image(?:_url)?"\s*:\s*"([^"]+savee-cdn\.com[^"]+)"',
+                    r'"image(?:Url)?"\s*:\s*"([^"]+savee-cdn\.com[^"]+user-avatar[^"]+)"',
+                ]
+                for pattern in avatar_patterns_json:
+                    m = re.search(pattern, json_text, re.IGNORECASE)
+                    if m and m.group(1) not in avatar_candidates:
+                        avatar_candidates.append(m.group(1))
+        except Exception:
+            pass
+
+        # Method 3: Check og:image meta tag (some profiles have avatar as og:image)
+        try:
+            og_image = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html_content, re.IGNORECASE)
+            if not og_image:
+                og_image = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html_content, re.IGNORECASE)
+            if og_image:
+                og_url = og_image.group(1)
+                if 'user-avatar/' in og_url or 'default-avatar-' in og_url or 'avatars/' in og_url:
+                    avatar_candidates.append(og_url)
+        except Exception:
+            pass
+
+        # Method 4: Fallback - scan for avatar URLs anywhere in HTML
+        try:
+            # Custom user avatars (dm.savee-cdn.com/user-avatar/)
+            custom_avatars = re.findall(r'https?://dm\.savee-cdn\.com/user-avatar/[^"\'\s\)>]+', html_content, re.IGNORECASE)
+            avatar_candidates.extend(custom_avatars)
+            
+            # Legacy custom avatars (dr.savee-cdn.com/avatars/)
+            legacy_custom = re.findall(r'https?://dr\.savee-cdn\.com/avatars/[^"\'\s\)>]+', html_content, re.IGNORECASE)
+            avatar_candidates.extend(legacy_custom)
+            
+            # Default avatars (m.savee-cdn.com/img/default-avatar-{1-8}.jpg)
+            default_avatars = re.findall(r'https?://m\.savee-cdn\.com/img/default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
+            avatar_candidates.extend(default_avatars)
+            
+            # Legacy default avatars (st.savee-cdn.com/img/default-avatar-{1-8}.jpg)
+            legacy_defaults = re.findall(r'https?://st\.savee-cdn\.com/img/default-avatar-\d+\.jpg', html_content, re.IGNORECASE)
+            avatar_candidates.extend(legacy_defaults)
+            
+            # Partial default avatar references (fallback to m.savee-cdn.com)
+            partial_defaults = re.findall(r'default-avatar-(\d+)\.jpg', html_content, re.IGNORECASE)
+            for num in partial_defaults:
+                full_url = f"https://m.savee-cdn.com/img/default-avatar-{num}.jpg"
+                if full_url not in avatar_candidates:
+                    avatar_candidates.append(full_url)
+        except Exception:
+            pass
+
+        # Pick the best avatar candidate
+        if avatar_candidates:
+            # Prefer custom avatars over default avatars
+            custom = [u for u in avatar_candidates if 'user-avatar/' in u or 'avatars/' in u]
+            defaults = [u for u in avatar_candidates if 'default-avatar-' in u]
+            
+            if custom:
+                # Clean up the URL (remove any trailing junk)
+                avatar_url = custom[0].split('"')[0].split("'")[0].split(')')[0]
+                profile_data['profile_image_url'] = avatar_url
+            elif defaults:
+                profile_data['profile_image_url'] = defaults[0]
 
         # Prefer DOM counters in the header toolbar (title="2,133 Saves", etc.)
         # These appear accurate and should override JSON when present
@@ -864,6 +952,50 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
     # Initialize counters at the top to avoid UnboundLocalError
     counters = {'found': 0, 'uploaded': 0, 'errors': 0, 'skipped': 0}
     
+    # Detect bulk import (list of URLs)
+    bulk_urls = []
+    original_url = url
+    # If url looks like a list (commas or newlines) or explicitly starts with 'bulk:'
+    if 'bulk:' in url[:5].lower() or ',' in url or '\n' in url or (url.count('http') > 1):
+        # Split by common separators (newlines, commas, spaces)
+        raw_parts = re.split(r'[,\s\n]+', url)
+        # Filter for valid item URLs and deduplicate
+        seen = set()
+        for part in raw_parts:
+            clean = part.strip()
+            if clean.startswith('http') and '/i/' in clean:
+                # Normalize URL (remove trailing slashes, fragments, query params)
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(clean)
+                    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
+                    if normalized not in seen:
+                        seen.add(normalized)
+                        bulk_urls.append(normalized)
+                except Exception:
+                    # Fallback to raw URL if parsing fails
+                    if clean not in seen:
+                        seen.add(clean)
+                        bulk_urls.append(clean)
+        
+        if bulk_urls:
+            # Generate a unique source identity for this bulk run
+            import time
+            timestamp = int(time.time())
+            # Use a fake user profile URL to group these
+            url = f"https://savee.com/bulk_import_{timestamp}"
+            logger.info(f"✓ Detected bulk import: {len(bulk_urls)} unique item URLs")
+            logger.info(f"  Mapped to source: {url}")
+            if len(bulk_urls) <= 5:
+                logger.info(f"  URLs: {', '.join(bulk_urls)}")
+            else:
+                logger.info(f"  First 3: {', '.join(bulk_urls[:3])}")
+                logger.info(f"  Last 2: {', '.join(bulk_urls[-2:])}")
+        else:
+            logger.warning(f"⚠ Input looked like bulk URLs but none were valid item URLs (/i/)")
+            logger.warning(f"  Original input: {original_url[:200]}...")
+    
+    
     engine = create_async_engine(settings.async_database_url, connect_args=settings.asyncpg_connect_args)
     Session = async_sessionmaker(engine)
     
@@ -928,22 +1060,71 @@ async def run_scraper_for_url(url: str, max_items: Optional[int] = None, provide
             await session.commit()
             
             # Get the appropriate iterator for real-time processing
-            source_type = _detect_source_type(url)
-            savee_user_id = None
-            
-            if source_type == SourceTypeEnum.home:
-                item_iterator = scraper.scrape_home_iterator(max_items=max_items)
-            elif source_type == SourceTypeEnum.pop:
-                item_iterator = scraper.scrape_pop_iterator(max_items=max_items)
+            # Get the appropriate iterator for real-time processing
+            if bulk_urls:
+                # For bulk, we iterate URLs directly to handle errors per URL correctly
+                processed_count = 0
+                for item_url in bulk_urls:
+                    if await _check_if_paused(session, source_id):
+                        await _handle_graceful_pause(session, run_id)
+                        if not await _wait_for_resume(session, source_id, run_id): break
+                    
+                    processed_count += 1
+                    try:
+                        logger.info(f"Bulk processing {processed_count}/{len(bulk_urls)}: {item_url}")
+                        # Scrape single item
+                        item = await scraper._scrape_item_details(crawler, item_url)
+                        if not item:
+                            raise ValueError(f"Failed to scrape details for {item_url}")
+                        
+                        # Process item (re-using the logic from the main loop but for exactly one item)
+                        # We simulate the loop body here for the bulk URLs
+                        r2_key = None
+                        base_key = _generate_r2_key(url, item.external_id)
+                        if getattr(item, 'media_url', None):
+                            if getattr(item, 'media_type', 'image') == 'image':
+                                r2_key = await storage.upload_image(item.media_url, base_key)
+                            else:
+                                poster = getattr(item, 'thumbnail_url', None) or getattr(item, 'og_image_url', None)
+                                r2_key = await storage.upload_video(item.media_url, base_key, poster)
+                        
+                        block_id = await _upsert_block(session, source_id, run_id, item, r2_key)
+                        await session.commit()
+                        
+                        if r2_key: counters['uploaded'] += 1
+                        else: counters['skipped'] += 1
+                        
+                        counters['found'] = processed_count
+                        await update_run_status(session, run_id, RunStatusEnum.running, counters)
+                        await session.commit()
+                        
+                    except Exception as e:
+                        logger.error(f"Bulk error on {item_url}: {e}")
+                        counters['errors'] += 1
+                        counters['found'] = processed_count
+                        await update_run_status(session, run_id, RunStatusEnum.running, counters)
+                        await session.commit()
+                
+                # After bulk loop, skip the main listing loop
+                item_iterator = [] # Empty iterator just to satisfy the next lines
             else:
-                username = _extract_username(url)
-                if username:
-                    # Create or update SaveeUser profile for user content
-                    savee_user_id = await _create_or_update_savee_user(session, username, url)
-                    await session.commit()
-                    item_iterator = scraper.scrape_user_iterator(username, max_items=max_items)
+                source_type = _detect_source_type(url)
+                savee_user_id = None
+                
+                if source_type == SourceTypeEnum.home:
+                    item_iterator = scraper.scrape_home_iterator(max_items=max_items)
+                elif source_type == SourceTypeEnum.pop:
+                    item_iterator = scraper.scrape_pop_iterator(max_items=max_items)
                 else:
-                    raise ValueError(f"Could not extract username from {url}")
+                    username = _extract_username(url)
+                    if username:
+                        # Create or update SaveeUser profile for user content
+                        savee_user_id = await _create_or_update_savee_user(session, username, url)
+                        await session.commit()
+                        item_iterator = scraper.scrape_user_iterator(username, max_items=max_items)
+                    else:
+                        raise ValueError(f"Could not extract username from {url}")
+
             
             # Configure early-exit policy for monitor sweeps
             stop_on_first_old: bool = False

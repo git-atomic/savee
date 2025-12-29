@@ -7,7 +7,7 @@ import path from "path";
 
 interface SourceData {
   url: string;
-  sourceType: "home" | "pop" | "user";
+  sourceType: "home" | "pop" | "user" | "blocks";
   status: "active" | "paused" | "completed" | "error";
   username?: string;
 }
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       const sourceData: SourceData = {
         url,
         sourceType: parsedUrl.sourceType,
-        status: "active",
+        status: parsedUrl.sourceType === "blocks" ? "completed" : "active",
       };
 
       if (parsedUrl.username) {
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
 
       const newSource = await payload.create({
         collection: "sources",
-        data: sourceData,
+        data: sourceData as any,
       });
       sourceId = newSource.id;
     } else {

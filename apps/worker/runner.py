@@ -4,7 +4,11 @@ import time
 import json
 import subprocess
 from typing import Any, Dict, List
+from dotenv import load_dotenv
 
+# Load environment variables from .env and .env.local
+load_dotenv()
+load_dotenv(".env.local", override=True)
 
 CMS_URL = os.getenv("CMS_URL", "").rstrip("/")
 ENGINE_MONITOR_TOKEN = os.getenv("ENGINE_MONITOR_TOKEN") or os.getenv("ENGINE_MONITOR_BEARER")

@@ -5,8 +5,6 @@
 import React from "react";
 import ClientBootstrap from "@/components/ClientBootstrap";
 import "@payloadcms/next/css";
-import "./custom.scss";
-import "./engine.css";
 
 type Args = { children: React.ReactNode };
 

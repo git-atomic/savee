@@ -153,11 +153,11 @@ export async function POST(request: NextRequest) {
       10
     );
 
-    // Find all active sources (no overrides read, to avoid schema issues)
+    // Find all active sources (exclude 'blocks' as they are strictly one-off)
     const sourcesRes = await db.query(
       requestedSourceId
         ? `SELECT id, url, interval_seconds, disable_backoff FROM sources WHERE id = $1 AND status = 'active'`
-        : `SELECT id, url, interval_seconds, disable_backoff FROM sources WHERE status = 'active' ORDER BY updated_at DESC LIMIT 200`,
+        : `SELECT id, url, interval_seconds, disable_backoff FROM sources WHERE status = 'active' AND source_type != 'blocks' ORDER BY updated_at DESC LIMIT 200`,
       requestedSourceId ? [requestedSourceId] : []
     );
 

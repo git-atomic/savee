@@ -53,14 +53,14 @@ class Settings(BaseSettings):
         default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         description="User agent for scraping"
     )
-    SCRAPER_DELAY_MIN: float = Field(default=1.0, description="Minimum delay between requests (seconds)")
-    SCRAPER_DELAY_MAX: float = Field(default=3.0, description="Maximum delay between requests (seconds)")
+    SCRAPER_DELAY_MIN: float = Field(default=0.5, description="Minimum delay between requests (seconds)")
+    SCRAPER_DELAY_MAX: float = Field(default=1.5, description="Maximum delay between requests (seconds)")
     SCRAPER_TIMEOUT: int = Field(default=30, description="Request timeout (seconds)")
     SCRAPER_MAX_RETRIES: int = Field(default=3, description="Maximum retries for failed requests")
     
     # Concurrency
-    JOB_CONCURRENCY: int = Field(default=2, description="Number of concurrent job workers")
-    ITEM_CONCURRENCY: int = Field(default=4, description="Number of concurrent item processors")
+    JOB_CONCURRENCY: int = Field(default=4, description="Number of concurrent job workers")
+    ITEM_CONCURRENCY: int = Field(default=8, description="Number of concurrent item processors")
     
     # Scheduling
     # (See detailed intervals below)
@@ -107,6 +107,15 @@ class Settings(BaseSettings):
     COOKIES_JSON: Optional[str] = Field(default=None, description="Cookies as JSON string")
     COOKIES_PATH: Optional[str] = Field(default=None, description="Path to cookies file")
     STORAGE_STATE_PATH: Optional[str] = Field(default=None, description="Path to Playwright storage state")
+    
+    # Secondary Resource Configuration (for failover/rotation)
+    SECONDARY_DATABASE_URL: Optional[str] = Field(default=None, description="Secondary PostgreSQL database URL")
+    
+    SECONDARY_R2_ENDPOINT_URL: Optional[str] = Field(default=None, description="Secondary R2 endpoint URL")
+    SECONDARY_R2_ACCESS_KEY_ID: Optional[str] = Field(default=None, description="Secondary R2 access key ID")
+    SECONDARY_R2_SECRET_ACCESS_KEY: Optional[str] = Field(default=None, description="Secondary R2 secret access key")
+    SECONDARY_R2_BUCKET_NAME: Optional[str] = Field(default=None, description="Secondary R2 bucket name")
+    SECONDARY_R2_REGION: Optional[str] = Field(default="auto", description="Secondary R2 region")
     
     @validator('DATABASE_URL')
     def validate_database_url(cls, v):

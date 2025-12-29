@@ -299,45 +299,136 @@ def build_item_collect_js() -> str:
       attempt();
     });
   }
+  
+  function tryExtractFromState() {
+     try {
+       // Check __INITIAL_STATE__
+       if (window.__INITIAL_STATE__) {
+          const state = window.__INITIAL_STATE__;
+          // Look for item details in state (common in Redux/Vuex stores)
+          // Adjust traversal based on actual structure. Usually user/feed/item
+          const possible = [];
+          
+          // Helper to find object with 'image' and 'id'
+          const findItem = (obj) => {
+             if (!obj || typeof obj !== 'object') return;
+             if (obj.image && obj.width && obj.height && (obj.id || obj.uid)) {
+                possible.push(obj);
+             }
+             Object.values(obj).forEach(v => {
+                if (typeof v === 'object') findItem(v);
+             });
+          };
+          
+          // Targeted check for item page
+          if (state.item) possible.push(state.item);
+          if (state.current) possible.push(state.current);
+          
+          if (possible.length > 0) {
+             const best = possible[0];
+             // Convert to our format
+             return {
+                imageOriginalSrc: best.image?.url || best.image,
+                videoSrc: best.video?.url || best.video,
+                videoPosterSrc: best.video?.poster || best.poster,
+                sourceApiUrl: null,
+                info: {
+                   sidebarTitle: best.title || best.name,
+                   // Add other fields if available in state
+                   tags: best.tags || [],
+                   colorHexes: best.colors || []
+                }
+             };
+          }
+       }
+       // Check __NEXT_DATA__
+       const nextData = document.getElementById('__NEXT_DATA__');
+       if (nextData) {
+          try {
+             const data = JSON.parse(nextData.textContent);
+             const props = data.props?.pageProps;
+             if (props?.item) {
+                const i = props.item;
+                return {
+                    imageOriginalSrc: i.asset?.url || i.image?.url || i.image,
+                    videoSrc: i.video?.url || i.video,
+                    videoPosterSrc: i.video?.poster || i.poster,
+                    info: {
+                        sidebarTitle: i.title || i.name,
+                        tags: i.tags || [],
+                        colorHexes: i.colors || []
+                    }
+                };
+             }
+          } catch(e) {}
+       }
+     } catch(e) {}
+     return null;
+  }
 
   async function collect() {
     try {
+      // 1. Try generic JSON extraction first (faster, reliable)
+      const fromState = tryExtractFromState();
+      
       const container = document.querySelector('[data-testid="image-container"]');
       const imgEl = container ? container.querySelector('[data-testid="image-original"]') : null;
       const videoEl = container ? (container.querySelector('video[slot="media"]') || container.querySelector('video')) : null;
-      const imageOriginalSrc = imgEl ? (imgEl.src || imgEl.getAttribute('src') || imgEl.getAttribute('data-src')) : null;
-      const videoSrc = videoEl ? (videoEl.src || videoEl.getAttribute('src')) : null;
-      const videoPosterSrc = videoEl ? (videoEl.poster || videoEl.getAttribute('poster')) : null;
+      
+      // Values from DOM
+      let imageOriginalSrc = imgEl ? (imgEl.src || imgEl.getAttribute('src') || imgEl.getAttribute('data-src')) : null;
+      let videoSrc = videoEl ? (videoEl.src || videoEl.getAttribute('src')) : null;
+      let videoPosterSrc = videoEl ? (videoEl.poster || videoEl.getAttribute('poster')) : null;
 
+      // Merge/Fallback
+      if (fromState) {
+          if (!imageOriginalSrc) imageOriginalSrc = fromState.imageOriginalSrc;
+          if (!videoSrc) videoSrc = fromState.videoSrc;
+          if (!videoPosterSrc) videoPosterSrc = fromState.videoPosterSrc;
+      }
+
+      // 2. Open Sidebar for metadata (tags, colors, title)
+      // Only do this if we haven't already got full metadata or if we want to confirm
       await openInfoAndWait(10, 300);
       const sidebarRoot = document.querySelector('#infoSideBar .space-y-8.px-6') || document.querySelector('#infoSideBar') || null;
-      const info = {};
+      
+      const info = fromState?.info || {};
       let sourceApiUrl = null;
-      let colorHexes = [];
-      let aiTags = [];
-      let sidebarTitle = null;
-
+      
+      // Mixin DOM sidebar data
       if (sidebarRoot) {
-        // title: try specific overflow/heading, else first large text
+        // title
         const titleCand = sidebarRoot.querySelector('.text-overflow, .text-lg');
-        sidebarTitle = titleCand ? (titleCand.textContent||'').trim() : null;
+        const domTitle = titleCand ? (titleCand.textContent||'').trim() : null;
+        if (domTitle && !info.sidebarTitle) info.sidebarTitle = domTitle;
 
         const allAnchors = Array.from(sidebarRoot.querySelectorAll('a'));
-        const links = allAnchors.map(a => ({ href: a.href, text: (a.textContent||'').trim(), title: (a.title||'') }));
-        const texts = Array.from(sidebarRoot.querySelectorAll('p,li,div')).map(n => (n.textContent||'').trim()).filter(Boolean).slice(0, 800);
+        
+        info.links = allAnchors.map(a => ({ href: a.href, text: (a.textContent||'').trim(), title: (a.title||'') }));
+        info.texts = Array.from(sidebarRoot.querySelectorAll('p,li,div')).map(n => (n.textContent||'').trim()).filter(Boolean).slice(0, 800);
+        
         const tags = allAnchors.map(a => (a.textContent||'').trim()).filter(t => t.startsWith('#'));
-        // AI tags are anchors under /search/?q= that are not color hashtags
-        aiTags = allAnchors
+        if (!info.tags) info.tags = [];
+        info.tags = Array.from(new Set([...info.tags, ...tags]));
+
+        // AI tags
+        const aiTags = allAnchors
           .filter(a => (a.getAttribute('href')||'').includes('/search/?q='))
           .map(a => (a.textContent||'').trim())
           .filter(t => t && !t.startsWith('#'));
+        info.aiTags = Array.from(new Set(aiTags));
+
         const colorAnchors = allAnchors.filter(a => (a.title||'').startsWith('Search by #'));
-        colorHexes = Array.from(new Set(colorAnchors.map(a => (a.title||'').replace('Search by ', '').trim()).filter(t => /^#[0-9A-Fa-f]{3,8}$/.test(t))));
+        const domColors = Array.from(new Set(colorAnchors.map(a => (a.title||'').replace('Search by ', '').trim()).filter(t => /^#[0-9A-Fa-f]{3,8}$/.test(t))));
+        if (!info.colorHexes) info.colorHexes = [];
+        info.colorHexes = Array.from(new Set([...info.colorHexes, ...domColors]));
+
         const colorEls = Array.from(sidebarRoot.querySelectorAll('[style*="background"]'));
         const colors = colorEls.map(el => { const s = el.getAttribute('style') || ''; const m = s.match(/background(?:-color)?:\s*([^;]+)/i); return m ? m[1].trim() : null; }).filter(Boolean);
+        info.colors = Array.from(new Set(colors));
+
         const srcLink = allAnchors.find(a => /\/api\/items\/[^/]+\/source\/?$/i.test(a.href));
         sourceApiUrl = srcLink ? srcLink.href : null;
-        info.links = links; info.texts = texts; info.tags = Array.from(new Set(tags)); info.colors = Array.from(new Set(colors)); info.colorHexes = Array.from(new Set(colorHexes)); info.aiTags = Array.from(new Set(aiTags)); info.sidebarTitle = sidebarTitle;
       }
 
       document.documentElement.setAttribute('data-savee-item', encodeURIComponent(JSON.stringify({ imageOriginalSrc, videoSrc, videoPosterSrc, sourceApiUrl, info })));
@@ -352,6 +443,10 @@ def build_item_collect_js() -> str:
 
 
 def build_login_js(email: str, password: str) -> str:
+
+
+
+
     # Best-effort generic login filler
     js = (
         "(function()\n"
@@ -453,7 +548,7 @@ def is_valid_item_id(item_id: str) -> bool:
         return False
     if item_id in {"undefined", "null", "None", ""}:
         return False
-    return re.fullmatch(r"[A-Za-z0-9_-]{5,24}", item_id) is not None
+    return re.fullmatch(r"[A-Za-z0-9_-]{5,50}", item_id) is not None
 
 
 def extract_item_id_from_url(url: str) -> Optional[str]:
@@ -661,6 +756,54 @@ class SaveeScraper:
         """Async iterator that yields items one by one for real-time processing"""
         async for item in self._scrape_listing_iterator(f"https://savee.com/{username}", max_items):
             yield item
+
+    async def scrape_bulk_iterator(self, urls: List[str]):
+        """
+        Async iterator that yields items from a specific list of URLs.
+        Each URL is scraped individually as an item page.
+        """
+        if not urls:
+            return
+
+        storage_state = load_storage_state_from_env()
+        cookies = load_cookies_from_env()
+        browser_cfg = BrowserConfig(
+            headless=True,
+            verbose=False,
+            storage_state=storage_state,
+            cookies=cookies,
+        )
+
+        async with AsyncWebCrawler(config=browser_cfg) as crawler:
+            count = 0
+            # Login only if no storage_state/cookies provided and credentials are set
+            # We try a generic login on the base domain of the first URL
+            if not storage_state and not cookies and settings.SAVE_EMAIL and settings.SAVE_PASSWORD and urls:
+                sp0 = urlsplit(urls[0])
+                base_url0 = f"{sp0.scheme}://{sp0.netloc}"
+                await self._ensure_login(crawler, base_url0, settings.SAVE_EMAIL, settings.SAVE_PASSWORD)
+
+            logger.info(f"Starting bulk scrape for {len(urls)} URLs")
+            
+            for url in urls:
+                try:
+                    # Validate URL
+                    if not self._extract_item_id_from_url(url):
+                        logger.warning(f"Skipping invalid item URL in bulk list: {url}")
+                        continue
+                        
+                    logger.info(f"Bulk scraping: {url}")
+                    item = await self._scrape_item_details(crawler, url)
+                    if item:
+                        count += 1
+                        yield item
+                    else:
+                        logger.warning(f"Failed to scrape bulk item: {url}")
+                except Exception as e:
+                    logger.error(f"Error scraping bulk item {url}: {e}")
+            
+            logger.info(f"Completed bulk scrape: {count} items processed")
+
 
     async def _scrape_listing_iterator(self, url: str, max_items: Optional[int] = None):
         """

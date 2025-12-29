@@ -33,25 +33,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
     components: {
-      views: {
-        "/engine": {
-          Component: "@/components/EngineUI",
-          path: "/engine",
-        },
-        // Sub-routes for tab-aware URLs
-        "/engine/add": {
-          Component: "@/components/EngineUI",
-          path: "/engine/add",
-        },
-        "/engine/jobs": {
-          Component: "@/components/EngineUI",
-          path: "/engine/jobs",
-        },
-        "/ui": {
-          Component: "@/components/EngineSandbox",
-          path: "/ui",
-        },
-      },
+
     },
   },
 

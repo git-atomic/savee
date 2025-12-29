@@ -248,6 +248,7 @@ out/
 # Allow specific cms src directories to be committed
 !apps/cms/src/lib/
 !apps/cms/src/app/api/engine/**
+!apps/web/lib/
 
 # Nuxt.js build / generate output
 .nuxt

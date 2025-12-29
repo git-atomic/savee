@@ -163,7 +163,7 @@ export interface Source {
    * Username for user profile sources
    */
   username?: string | null;
-  status: 'active' | 'paused' | 'completed' | 'error';
+  status: 'active' | 'paused' | 'stopped' | 'completed' | 'error';
   /**
    * If set, overrides global MONITOR_MIN_INTERVAL_SECONDS for this job
    */

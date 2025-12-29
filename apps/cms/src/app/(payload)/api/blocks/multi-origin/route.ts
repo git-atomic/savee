@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      blocks: res.rows.map((block) => ({
+      blocks: res.rows.map((block: any) => ({
         ...block,
         origins: Array.isArray(block.origins)
           ? block.origins.filter(Boolean)
@@ -45,10 +45,10 @@ export async function GET(req: NextRequest) {
       })),
       count: res.rows.length,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Multi-origin blocks API error:", error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: error?.message || String(error) },
       { status: 500 }
     );
   }

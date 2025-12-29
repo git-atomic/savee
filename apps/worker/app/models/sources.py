@@ -13,6 +13,7 @@ class SourceTypeEnum(enum.Enum):
     home = "home"
     pop = "pop" 
     user = "user"
+    blocks = "blocks"  # Bulk import of individual item URLs
 
 class SourceStatusEnum(enum.Enum):
     active = "active"
@@ -41,7 +42,7 @@ class Source(Base):
     source_type: Mapped[SourceTypeEnum] = mapped_column(
         Enum(SourceTypeEnum, name="enum_sources_source_type", create_type=False), 
         nullable=False,
-        doc="Source type: 'home', 'pop', 'user'"
+        doc="Source type: 'home', 'pop', 'user', 'blocks'"
     )
     username: Mapped[str] = mapped_column(
         String(255), 

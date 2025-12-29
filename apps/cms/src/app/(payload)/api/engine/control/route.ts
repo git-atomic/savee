@@ -3,7 +3,6 @@ import { getPayload } from "payload";
 import config from "@payload-config";
 import { spawn, spawnSync, ChildProcess } from "child_process";
 import path from "path";
-import type { NextFetchRequestConfig } from "next/server";
 
 // Process tracking for pause/resume functionality
 const runningProcesses = new Map<string, ChildProcess>();
