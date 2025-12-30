@@ -14,7 +14,9 @@ const nextConfig = {
   // Reduce noisy dev 404s for source maps in generated chunks
   // Remove deprecated devIndicators to avoid warnings
   // Disable sourcemap generation for app directory in dev to avoid .map 404 logs
+  // Disable sourcemap generation for app directory in dev to avoid .map 404 logs
   productionBrowserSourceMaps: false,
+  distDir: ".next-temp",
 };
 
 export default withPayload(nextConfig);

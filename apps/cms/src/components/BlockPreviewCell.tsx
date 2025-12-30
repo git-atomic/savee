@@ -167,7 +167,7 @@ export default function BlockPreviewCell({ rowData }: Props) {
   }
 
   return (
-    <div className="w-16 h-16 rounded overflow-hidden border border-gray-200 bg-gray-50 flex flex-col items-center justify-center">
+    <div className="flex items-center justify-center max-w-[300px] max-h-[300px] overflow-hidden rounded border border-gray-200 bg-gray-50 p-1">
       {loading ? (
         <span className="text-[10px] text-gray-600">...</span>
       ) : isVideo ? (
@@ -177,7 +177,7 @@ export default function BlockPreviewCell({ rowData }: Props) {
         <img
           src={src}
           alt={rowData?.title || "preview"}
-          className="object-cover w-full h-full"
+          className="w-auto h-auto max-w-[250px] max-h-[250px] object-contain"
           referrerPolicy="no-referrer"
           onError={(e) => {
             const target = e.target as HTMLImageElement;

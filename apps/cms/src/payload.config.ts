@@ -29,9 +29,6 @@ export default buildConfig({
     meta: {
       titleSuffix: "- Savee Scraper CMS",
     },
-    importMap: {
-      baseDir: path.resolve(dirname),
-    },
     components: {
 
     },
