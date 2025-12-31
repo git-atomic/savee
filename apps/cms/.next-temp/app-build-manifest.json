@@ -1,5 +1,16 @@
 {
   "pages": {
+    "/(engine)/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/(engine)/layout.css",
+      "static/chunks/app/(engine)/layout.js"
+    ],
+    "/(engine)/admin/engine/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/(engine)/admin/engine/page.js"
+    ],
     "/(payload)/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
@@ -17,23 +28,6 @@
       "static/chunks/main-app.js",
       "static/css/app/(payload)/admin/[[...segments]]/page.css",
       "static/chunks/app/(payload)/admin/[[...segments]]/page.js"
-    ],
-    "/(payload)/api/[...slug]/route": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/css/app/(payload)/api/[...slug]/route.css",
-      "static/chunks/app/(payload)/api/[...slug]/route.js"
-    ],
-    "/(engine)/layout": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/css/app/(engine)/layout.css",
-      "static/chunks/app/(engine)/layout.js"
-    ],
-    "/(engine)/admin/engine/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(engine)/admin/engine/page.js"
     ]
   }
 }

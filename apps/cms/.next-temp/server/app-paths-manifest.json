@@ -1,4 +1,3 @@
 {
-  "/(engine)/admin/engine/page": "app/(engine)/admin/engine/page.js",
-  "/(payload)/admin/[[...segments]]/page": "app/(payload)/admin/[[...segments]]/page.js"
+  "/(engine)/admin/engine/page": "app/(engine)/admin/engine/page.js"
 }

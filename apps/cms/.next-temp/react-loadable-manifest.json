@@ -237,34 +237,22 @@
       "static/chunks/_app-pages-browser_node_modules_pnpm_date-fns_4_1_0_node_modules_date-fns_locale_zh-TW_js.js"
     ]
   },
-  "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@types+react@19.1.8_monaco-editor@0.52.2_next@15.4.10_@babel+core@7.28._5r42shmqw6qcwtdpzszpgccar4\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./CodeEditor-POJ47VX6.js": {
-    "id": "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@types+react@19.1.8_monaco-editor@0.52.2_next@15.4.10_@babel+core@7.28._5r42shmqw6qcwtdpzszpgccar4\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./CodeEditor-POJ47VX6.js",
+  "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@type_b4e71577473023807239a2abc3ca8c78\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./CodeEditor-POJ47VX6.js": {
+    "id": "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@type_b4e71577473023807239a2abc3ca8c78\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./CodeEditor-POJ47VX6.js",
     "files": [
-      "static/chunks/_app-pages-browser_node_modules_pnpm_payloadcms_ui_3_54_0__types_react_19_1_8_monaco-editor_0-08c9d0.js"
+      "static/chunks/_app-pages-browser_node_modules_pnpm_payloadcms_ui_3_54_0__type_b4e71577473023807239a2abc3ca8-0e89ed.js"
     ]
   },
-  "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@types+react@19.1.8_monaco-editor@0.52.2_next@15.4.10_@babel+core@7.28._5r42shmqw6qcwtdpzszpgccar4\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./DatePicker-NMDEHPWL.js": {
-    "id": "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@types+react@19.1.8_monaco-editor@0.52.2_next@15.4.10_@babel+core@7.28._5r42shmqw6qcwtdpzszpgccar4\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./DatePicker-NMDEHPWL.js",
+  "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@type_b4e71577473023807239a2abc3ca8c78\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./DatePicker-NMDEHPWL.js": {
+    "id": "..\\node_modules\\.pnpm\\@payloadcms+ui@3.54.0_@type_b4e71577473023807239a2abc3ca8c78\\node_modules\\@payloadcms\\ui\\dist\\exports\\client\\index.js -> ./DatePicker-NMDEHPWL.js",
     "files": [
-      "static/chunks/_app-pages-browser_node_modules_pnpm_payloadcms_ui_3_54_0__types_react_19_1_8_monaco-editor_0-639bc5.js"
+      "static/chunks/_app-pages-browser_node_modules_pnpm_payloadcms_ui_3_54_0__type_b4e71577473023807239a2abc3ca8-8f0db0.js"
     ]
   },
-  "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7.28.5_babel-plugin-macros@3.1.0_react-dom@19.2.3_react@19.2.3__react@19.2.3_sass@1.77.4\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts": {
-    "id": "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7.28.5_babel-plugin-macros@3.1.0_react-dom@19.2.3_react@19.2.3__react@19.2.3_sass@1.77.4\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts",
+  "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7._55b91c3b45ebcb79605bb31580466dd8\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts": {
+    "id": "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7._55b91c3b45ebcb79605bb31580466dd8\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts",
     "files": [
-      "static/chunks/_app-pages-browser_node_modules_pnpm_next_15_4_10__babel_core_7_28_5_babel-plugin-macros_3_1_-0713e7.js"
-    ]
-  },
-  "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7.28.5_babel-plugin-macros@3.1.0_react-dom@19.2.3_react@19.2.3__react@19.2.3_sass@1.77.4\\node_modules\\next\\dist\\client\\index.js -> ../pages/_app": {
-    "id": "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7.28.5_babel-plugin-macros@3.1.0_react-dom@19.2.3_react@19.2.3__react@19.2.3_sass@1.77.4\\node_modules\\next\\dist\\client\\index.js -> ../pages/_app",
-    "files": [
-      "static/chunks/_pages-dir-browser_node_modules_pnpm_next_15_4_10__babel_core_7_28_5_babel-plugin-macros_3_1_-832395.js"
-    ]
-  },
-  "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7.28.5_babel-plugin-macros@3.1.0_react-dom@19.2.3_react@19.2.3__react@19.2.3_sass@1.77.4\\node_modules\\next\\dist\\client\\index.js -> ../pages/_error": {
-    "id": "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7.28.5_babel-plugin-macros@3.1.0_react-dom@19.2.3_react@19.2.3__react@19.2.3_sass@1.77.4\\node_modules\\next\\dist\\client\\index.js -> ../pages/_error",
-    "files": [
-      "static/chunks/_pages-dir-browser_node_modules_pnpm_next_15_4_10__babel_core_7_28_5_babel-plugin-macros_3_1_-f0bf04.js"
+      "static/chunks/_app-pages-browser_node_modules_pnpm_next_15_4_10__babel_core_7__55b91c3b45ebcb79605bb3158046-2a6054.js"
     ]
   }
 }
