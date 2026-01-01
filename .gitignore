@@ -242,9 +242,7 @@ web_modules/
 .parcel-cache
 
 # Next.js build output
-.next/
-.next-temp/
-.next-win/
+.next
 out/
 
 # Allow specific cms src directories to be committed
