@@ -3,32 +3,31 @@
 import * as React from "react"
 import { Monitor, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 
 const themes = [
-  { id: "system", icon: Monitor, label: "System" },
-  { id: "light", icon: Sun, label: "Light" },
-  { id: "dark", icon: Moon, label: "Dark" },
+  { id: "system", icon: Monitor, label: "System theme" },
+  { id: "light", icon: Sun, label: "Light theme" },
+  { id: "dark", icon: Moon, label: "Dark theme" },
 ]
 
 export function ModeToggle() {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
 
-  // Avoid hydration mismatch
   React.useEffect(() => {
     setMounted(true)
   }, [])
 
   if (!mounted) {
     return (
-      <div className="flex bg-muted/50 p-1.5 rounded-full h-[46px] w-[130px] items-center justify-between pointer-events-none opacity-50" />
+      <div className="flex bg-muted/50 p-0.5 rounded-full relative items-center border border-border/50 h-[38px] w-[116px] opacity-0" />
     )
   }
 
   return (
-    <div className="flex bg-muted/40 backdrop-blur-sm p-1.5 rounded-full relative items-center shadow-inner border border-border/50">
+    <div className="flex bg-muted/50 p-0.5 rounded-full relative items-center border border-border/50">
       {themes.map((t) => {
         const isActive = theme === t.id
         const Icon = t.icon
@@ -38,32 +37,26 @@ export function ModeToggle() {
             key={t.id}
             onClick={() => setTheme(t.id)}
             className={cn(
-              "relative flex items-center justify-center h-8 w-10 z-10 transition-colors duration-300 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full",
-              isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground/80"
+              "relative flex items-center justify-center h-7 w-9 z-10 transition-colors duration-200 outline-none rounded-full",
+              isActive 
+                ? "text-foreground" 
+                : "text-muted-foreground hover:text-foreground"
             )}
-            aria-label={`Set ${t.label} theme`}
+            aria-label={t.label}
           >
             {isActive && (
               <motion.div
-                layoutId="active-theme-pill"
-                className="absolute inset-0 bg-background shadow-sm rounded-full border border-border/40"
+                layoutId="active-theme-bg"
+                className="absolute inset-0 bg-background rounded-full border border-border/50"
                 transition={{
                   type: "spring",
-                  stiffness: 400,
+                  stiffness: 450,
                   damping: 30,
+                  mass: 0.8
                 }}
               />
             )}
-            <motion.div
-              initial={false}
-              animate={{
-                scale: isActive ? 1.1 : 1,
-                rotate: isActive ? 0 : -10,
-              }}
-              className="z-20 flex items-center justify-center"
-            >
-              <Icon className="h-[18px] w-[18px]" />
-            </motion.div>
+            <Icon className="h-[15px] w-[15px] z-20 relative" strokeWidth={2} />
           </button>
         )
       })}
