@@ -244,6 +244,8 @@ web_modules/
 # Next.js build output
 .next
 out/
+.next-temp
+.next-win
 
 # Allow specific cms src directories to be committed
 !apps/cms/src/lib/
