@@ -1,0 +1,8 @@
+{
+  "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7._55b91c3b45ebcb79605bb31580466dd8\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts": {
+    "id": "..\\node_modules\\.pnpm\\next@15.4.10_@babel+core@7._55b91c3b45ebcb79605bb31580466dd8\\node_modules\\next\\dist\\client\\dev\\hot-reloader\\app\\use-websocket.js -> @vercel/turbopack-ecmascript-runtime/browser/dev/hmr-client/hmr-client.ts",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_pnpm_next_15_4_10__babel_core_7__55b91c3b45ebcb79605bb3158046-2a6054.js"
+    ]
+  }
+}
