@@ -1,0 +1,5 @@
+7803b9e chore: temporary commit to clear working tree
+574d5d0 chore: sync gitignore
+ad45d61 feat: professional dark mode and engine header overhaul
+afa6cb8 feat: implement dark mode with premium switcher and fix gitignore
+f1cf383 feat: implement premium dark mode switcher with framer-motion

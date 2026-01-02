@@ -1,0 +1,5 @@
+0c83d5b feat: refine professional dark mode, typography with Inter, and clean shell foundation
+66ed4b0 feat: professional dark mode dashboard and layout restoration
+fcba9c8 feat: engine layout and dark mode toggle
+7803b9e chore: temporary commit to clear working tree
+574d5d0 chore: sync gitignore
