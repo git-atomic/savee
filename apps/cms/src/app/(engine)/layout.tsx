@@ -1,14 +1,59 @@
 import React from "react";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ModeToggle } from "@/components/engine/layout/ModeToggle";
 import "../../../globals.css";
 import { cn } from "@/lib/utils";
 
-const inter = Inter({
-  subsets: ["latin"],
+const inter = localFont({
+  src: [
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-Regular.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-Medium.woff2",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-SemiBold.woff2",
+      weight: "600",
+      style: "normal",
+    },
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-Bold.woff2",
+      weight: "700",
+      style: "normal",
+    },
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-Italic.woff2",
+      weight: "400",
+      style: "italic",
+    },
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-MediumItalic.woff2",
+      weight: "500",
+      style: "italic",
+    },
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-SemiBoldItalic.woff2",
+      weight: "600",
+      style: "italic",
+    },
+    {
+      path: "../../../public/fonts/Inter-4.1/web/Inter-BoldItalic.woff2",
+      weight: "700",
+      style: "italic",
+    },
+  ],
   variable: "--font-sans",
+  display: "swap",
+  preload: true,
+  fallback: ["system-ui", "sans-serif"],
 });
+
 
 export const metadata = {
   title: "ScrapeSavee Engine",
@@ -21,7 +66,11 @@ export default function EngineRootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className={cn(inter.variable)}>
+    <html 
+      lang="en" 
+      suppressHydrationWarning 
+      className={cn(inter.variable, inter.className)}
+    >
       <body
         className={cn(
           "min-h-screen bg-background font-sans antialiased text-foreground transition-colors duration-300"

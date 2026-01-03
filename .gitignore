@@ -243,8 +243,6 @@ web_modules/
 
 # Next.js build output
 .next
-.next-temp
-.next-win
 out/
 
 # Allow specific cms src directories to be committed
@@ -324,3 +322,4 @@ secrets/
 # Docker
 docker-compose.override.yml
 NUL
+**/.next-temp/
