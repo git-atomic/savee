@@ -323,3 +323,4 @@ secrets/
 docker-compose.override.yml
 NUL
 **/.next-temp/
+**/.next-temp/
